@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-04-07
+
+### Fixed
+- **Drag-and-drop returns truncated path on macOS 15.** A tester reported
+  that dropping a video file onto a picker row populated only the volume
+  mount root (e.g. `/Volumes/media6/`) instead of the full file path.
+  Root cause: the v0.2.3 fix used `NSURL.URLWithString:` to parse the
+  `public.file-url` pasteboard type, but on macOS 15 Finder packs the
+  URL data in a way that `URLWithString:` parses incorrectly — it
+  returns the volume root URL instead of the file URL.
+
+  Fix: switch to the canonical `NSPasteboard.readObjectsForClasses:options:`
+  API with `[NSURL]`, which returns parsed NSURL objects directly and
+  avoids string-based URL parsing entirely. Falls back to per-item
+  iteration via `pasteboardItems` and finally to legacy
+  `NSFilenamesPboardType` if both modern paths fail.
+
+### Added
+- Diagnostic logging in `_file_path_from_pasteboard`. If all three
+  extraction methods fail, the picker now logs the available pasteboard
+  types so a future tester's console.log will tell us exactly what
+  Finder sent.
+
 ## [0.2.3] — 2026-04-07
 
 ### Fixed
@@ -124,7 +147,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.4
 [0.2.3]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.3
 [0.2.2]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.2
 [0.2.1]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.1

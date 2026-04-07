@@ -9,6 +9,8 @@ chad.littlepage@gmail.com
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from rich.console import Console
 from pathlib import Path
 
 import objc
@@ -182,25 +184,60 @@ _FILE_URL_UTI = "public.file-url"
 
 
 def _file_path_from_pasteboard(pasteboard) -> str | None:
-    """Try every supported pasteboard type and return the first file path
-    we can extract. Handles both legacy NSFilenamesPboardType (list of
-    POSIX paths) and modern public.file-url (a file:// URL string per item)."""
+    """Extract a file path from a drag pasteboard, handling every format
+    macOS Finder might use across versions.
+
+    The canonical modern API is `readObjectsForClasses:options:` with
+    `[NSURL]`, which returns parsed NSURL objects directly — this is more
+    reliable than string-based parsing of `public.file-url`, especially
+    on macOS 15 where Finder sometimes packs the URL data in ways that
+    `URLWithString:` parses incorrectly (returning only the volume root).
+    """
+    from AppKit import NSURL
+
+    # Method 1 (preferred): NSPasteboard.readObjectsForClasses:options:
+    try:
+        urls = pasteboard.readObjectsForClasses_options_([NSURL], None)
+        if urls and len(urls) > 0:
+            url = urls[0]
+            if url is not None and url.isFileURL():
+                p = url.path()
+                if p:
+                    return str(p)
+    except Exception as e:
+        console = Console()
+        console.print(f"[dim]readObjectsForClasses failed: {e}[/dim]")
+
+    # Method 2: iterate per-item, parsing each item's public.file-url
+    try:
+        items = pasteboard.pasteboardItems() or []
+        for item in items:
+            s = item.stringForType_(_FILE_URL_UTI)
+            if not s:
+                continue
+            url = NSURL.URLWithString_(s)
+            if url is not None and url.isFileURL():
+                p = url.path()
+                if p:
+                    return str(p)
+    except Exception as e:
+        console = Console()
+        console.print(f"[dim]pasteboardItems iteration failed: {e}[/dim]")
+
+    # Method 3: legacy NSFilenamesPboardType (deprecated but sometimes still
+    # populated, especially on older macOS versions)
     types = pasteboard.types() or []
-    # Legacy: NSFilenamesPboardType — Apple has been gradually killing this.
     if NSFilenamesPboardType in types:
         files = pasteboard.propertyListForType_(NSFilenamesPboardType)
         if files and len(files) > 0:
             return str(files[0])
-    # Modern: public.file-url — what Finder on macOS 15 actually sends.
-    if _FILE_URL_UTI in types:
-        url_str = pasteboard.stringForType_(_FILE_URL_UTI)
-        if url_str:
-            from AppKit import NSURL
-            url = NSURL.URLWithString_(url_str)
-            if url is not None:
-                p = url.path()
-                if p:
-                    return str(p)
+
+    # All methods failed — log the pasteboard state for diagnosis.
+    console = Console()
+    console.print(
+        f"[yellow]Drag drop: could not extract file path from pasteboard. "
+        f"Available types: {list(types)}[/yellow]"
+    )
     return None
 
 
