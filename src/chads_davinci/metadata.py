@@ -408,7 +408,7 @@ def save_report_text(
         row = [label] + [str(getter(meta)) for _, meta in results]
         lines.append("  ".join(c.ljust(col_w) for c in row))
 
-    out.write_text("\n".join(lines) + "\n")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out
 
 
@@ -420,7 +420,7 @@ def save_report_csv(
     """Save metadata comparison as a CSV file."""
     out = _ensure_dir(out_dir) / f"{project_name}_metadata.csv"
     headers = ["Property"] + [a.role.value for a, _ in results]
-    with out.open("w", newline="") as f:
+    with out.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
         for label, getter in _metadata_rows():
@@ -465,7 +465,7 @@ def save_report_json(
                 "el_type": meta.dolby_vision.el_type,
             },
         })
-    out.write_text(json.dumps(data, indent=2))
+    out.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return out
 
 
@@ -502,7 +502,7 @@ def save_report_html(
 </table>
 </body></html>
 """
-    out.write_text(html)
+    out.write_text(html, encoding="utf-8")
     return out
 
 
@@ -575,5 +575,5 @@ def export_edl_markers(
         lines.append(f" |C:ResolveColorBlue |M:{comment} |D:1")
         lines.append("")
 
-    out.write_text("\n".join(lines))
+    out.write_text("\n".join(lines), encoding="utf-8")
     return out

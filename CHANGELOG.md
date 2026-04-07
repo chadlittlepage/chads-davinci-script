@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-04-07
+
+### Fixed
+- **Crash on first real run**: text/CSV/JSON/HTML report writers were
+  using `Path.write_text()` without `encoding="utf-8"`, which crashed on
+  the very first em-dash (`—`) in a metadata table. Now every file I/O
+  in the codebase explicitly uses UTF-8.
+- Defensive UTF-8 + `ensure_ascii=False` on all settings/preset/bin
+  JSON reads and writes, so unicode characters in track names, preset
+  names, and bin labels round-trip safely.
+
 ## [0.2.0] — 2026-04-07
 
 First public-facing notarized release.
@@ -62,5 +73,6 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.1
 [0.2.0]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.0

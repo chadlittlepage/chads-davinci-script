@@ -24,7 +24,7 @@ def load_presets() -> dict:
     if not PRESETS_PATH.exists():
         return {}
     try:
-        data = json.loads(PRESETS_PATH.read_text())
+        data = json.loads(PRESETS_PATH.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
@@ -32,7 +32,7 @@ def load_presets() -> dict:
 
 def save_presets(presets: dict) -> None:
     PRESETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PRESETS_PATH.write_text(json.dumps(presets, indent=2))
+    PRESETS_PATH.write_text(json.dumps(presets, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def save_preset(name: str, settings: dict) -> None:
@@ -85,7 +85,7 @@ def load_user_settings() -> dict:
     if not USER_SETTINGS_PATH.exists():
         return {}
     try:
-        return json.loads(USER_SETTINGS_PATH.read_text())
+        return json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
 
@@ -93,7 +93,9 @@ def load_user_settings() -> dict:
 def save_user_settings(data: dict) -> None:
     """Persist user picker defaults to disk."""
     USER_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    USER_SETTINGS_PATH.write_text(json.dumps(data, indent=2))
+    USER_SETTINGS_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def collect_settings_bundle() -> dict:
@@ -107,7 +109,7 @@ def collect_settings_bundle() -> dict:
     # Include bin structure if it exists
     if BIN_STRUCTURE_PATH.exists():
         try:
-            bundle["bin_structure"] = json.loads(BIN_STRUCTURE_PATH.read_text())
+            bundle["bin_structure"] = json.loads(BIN_STRUCTURE_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
 
@@ -129,7 +131,10 @@ def apply_settings_bundle(bundle: dict) -> tuple[bool, str]:
     # Apply bin_structure if present
     if "bin_structure" in bundle:
         BIN_STRUCTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        BIN_STRUCTURE_PATH.write_text(json.dumps(bundle["bin_structure"], indent=2))
+        BIN_STRUCTURE_PATH.write_text(
+            json.dumps(bundle["bin_structure"], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     return True, "Settings imported successfully"
 
@@ -138,7 +143,7 @@ def export_to_file(target_path: Path | str) -> Path:
     """Export the current settings bundle to the given file path."""
     target = Path(target_path)
     bundle = collect_settings_bundle()
-    target.write_text(json.dumps(bundle, indent=2))
+    target.write_text(json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8")
     return target
 
 
@@ -148,7 +153,7 @@ def import_from_file(source_path: Path | str) -> tuple[bool, str]:
     if not source.exists():
         return False, f"File not found: {source}"
     try:
-        bundle = json.loads(source.read_text())
+        bundle = json.loads(source.read_text(encoding="utf-8"))
     except Exception as e:
         return False, f"Failed to parse JSON: {e}"
     return apply_settings_bundle(bundle)

@@ -42,7 +42,9 @@ SAVED_BINS_PATH = APP_SUPPORT_DIR / "bin_structure.json"
 def save_bin_structure(structure: list[tuple[str, list[str]]]) -> None:
     """Persist the bin structure to disk."""
     SAVED_BINS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SAVED_BINS_PATH.write_text(json.dumps(structure, indent=2))
+    SAVED_BINS_PATH.write_text(
+        json.dumps(structure, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def load_saved_bin_structure() -> list[tuple[str, list[str]]] | None:
@@ -50,7 +52,7 @@ def load_saved_bin_structure() -> list[tuple[str, list[str]]] | None:
     if not SAVED_BINS_PATH.exists():
         return None
     try:
-        data = json.loads(SAVED_BINS_PATH.read_text())
+        data = json.loads(SAVED_BINS_PATH.read_text(encoding="utf-8"))
         return [(name, sub_list) for name, sub_list in data]
     except Exception:
         return None
