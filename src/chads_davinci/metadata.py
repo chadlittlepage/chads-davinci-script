@@ -27,7 +27,10 @@ from chads_davinci.models import (
     TrackAssignment,
 )
 
-console = Console()
+# Force a wide rendering width so the metadata comparison table (7 columns)
+# doesn't get truncated to ~80 chars when stdout is tee'd to a log file
+# (no terminal → Rich falls back to its default 80-column width).
+console = Console(width=240, force_terminal=False)
 
 
 def _find_bundled_tool(name: str) -> str | None:

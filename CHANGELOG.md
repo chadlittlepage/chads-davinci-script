@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-04-07
+
+### Fixed
+- **Metadata comparison table truncated to 80 columns in console.log.**
+  The Rich `Console` in `metadata.py` was using its default width (80
+  chars) when stdout was tee'd to a file (no TTY). With 7 metadata
+  columns squeezed into 80 chars, every property value got cut off
+  after ~10 characters, making the table visually useless in exported
+  log files. Fix: construct the module-level Console with
+  `width=240, force_terminal=False` so the table renders at full
+  width regardless of where stdout is going.
+
 ## [0.2.6] — 2026-04-07
 
 ### Added
@@ -196,7 +208,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.7
 [0.2.6]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.6
 [0.2.5]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.5
 [0.2.4]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.4
