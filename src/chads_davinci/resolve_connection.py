@@ -1,0 +1,656 @@
+"""DaVinci Resolve scripting API connection and timeline operations.
+
+This Script and Code created by:
+Chad Littlepage
+chad.littlepage@gmail.com
+323.974.0444
+"""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+
+from chads_davinci import models
+from chads_davinci.models import (
+    BIN_STRUCTURE,
+    TRACK_BIN_MAP,
+    TrackAssignment,
+    TrackRole,
+)
+
+console = Console()
+
+
+def get_resolve() -> Any:
+    """Import and return the DaVinci Resolve scripting module."""
+    # macOS paths
+    script_paths = [
+        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
+        Path.home()
+        / "Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
+    ]
+
+    for p in script_paths:
+        path_str = str(p)
+        if path_str not in sys.path:
+            sys.path.append(path_str)
+
+    try:
+        import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
+
+        resolve = dvr.scriptapp("Resolve")
+        if resolve is None:
+            console.print("[red]Could not connect to DaVinci Resolve. Is it running?[/red]")
+            raise SystemExit(1)
+        return resolve
+    except ImportError:
+        console.print("[red]DaVinci Resolve scripting module not found.[/red]")
+        raise SystemExit(1)
+
+
+@dataclass
+class ResolveContext:
+    """Active Resolve session objects."""
+
+    resolve: Any
+    project_manager: Any
+    project: Any
+    media_pool: Any
+    timeline: Any | None = None
+
+
+def connect(
+    create_project: bool = False,
+    project_name: str = "Quad Project",
+    database_name: str = "",
+    folder_name: str = "",
+) -> ResolveContext:
+    """Establish connection to Resolve and optionally create a project.
+
+    Args:
+        create_project: If True, create a new project (or open existing).
+        project_name: Name for the new/existing project.
+        database_name: Resolve database to use. If empty, uses current.
+        folder_name: Folder within the database to create/navigate to.
+    """
+    resolve = get_resolve()
+    pm = resolve.GetProjectManager()
+
+    # Switch database if specified
+    if database_name:
+        db_list = pm.GetDatabaseList() or []
+        target_db = None
+        for db in db_list:
+            if db.get("DbName") == database_name:
+                target_db = db
+                break
+
+        if target_db is None and db_list:
+            console.print(f"[yellow]Database '{database_name}' not found. Available:[/yellow]")
+            for db in db_list:
+                console.print(f"  - {db.get('DbName', 'unknown')}")
+            console.print("[yellow]Using current database instead.[/yellow]")
+        else:
+            result = pm.SetCurrentDatabase(target_db)
+            if result:
+                console.print(f"Switched to database: [cyan]{database_name}[/cyan]")
+            else:
+                console.print(f"[yellow]Could not switch to '{database_name}', using current[/yellow]")
+
+    # Create/navigate to folder if specified
+    if folder_name:
+        if not pm.OpenFolder(folder_name):
+            result = pm.CreateFolder(folder_name)
+            if result:
+                pm.OpenFolder(folder_name)
+                console.print(f"Created folder: [cyan]{folder_name}[/cyan]")
+            else:
+                console.print(f"[yellow]Could not create folder '{folder_name}'[/yellow]")
+        else:
+            console.print(f"Opened folder: [cyan]{folder_name}[/cyan]")
+
+    if create_project:
+        project = pm.CreateProject(project_name)
+        if project is None:
+            # Project already exists — delete it and create fresh
+            console.print(f"  Project '{project_name}' already exists, replacing...")
+            existing = pm.LoadProject(project_name)
+            if existing:
+                pm.CloseProject(existing)
+            pm.DeleteProject(project_name)
+            project = pm.CreateProject(project_name)
+        if project is None:
+            console.print(f"[red]Could not create project '{project_name}'[/red]")
+            raise SystemExit(1)
+    else:
+        project = pm.GetCurrentProject()
+        if project is None:
+            console.print("[red]No project is currently open in Resolve[/red]")
+            raise SystemExit(1)
+
+    media_pool = project.GetMediaPool()
+    timeline = project.GetCurrentTimeline()
+
+    return ResolveContext(
+        resolve=resolve,
+        project_manager=pm,
+        project=project,
+        media_pool=media_pool,
+        timeline=timeline,
+    )
+
+
+def set_project_settings(
+    ctx: ResolveContext,
+    frame_rate: str = "23.976",
+    start_timecode: str = "00:00:00:00",
+    source_resolution: str = "1920x1080",
+    timeline_color_space: str = "Rec.2100 ST2084",
+    output_color_space: str = "Rec.2100 ST2084",
+) -> None:
+    """Configure the project for full Dolby Vision testing.
+
+    Timeline resolution is 2x the source so quads fit at 1:1 zoom:
+    - 1920x1080 source → 3840x2160 timeline
+    - 3840x2160 source → 7680x4320 timeline
+    """
+    project = ctx.project
+
+    # Compute timeline resolution from source
+    src_w, src_h = (int(x) for x in source_resolution.split("x"))
+    tl_w = src_w * 2
+    tl_h = src_h * 2
+
+    # Timeline resolution
+    project.SetSetting("timelineResolutionWidth", str(tl_w))
+    project.SetSetting("timelineResolutionHeight", str(tl_h))
+
+    # Timeline frame rate
+    project.SetSetting("timelineFrameRate", frame_rate)
+
+    # Video monitoring format MUST match timeline resolution exactly
+    if tl_w == 7680:  # 8K UHD (7680x4320)
+        monitor_fmt = f"8K UHD 4320p {frame_rate}"
+    elif tl_w == 3840:  # 4K UHD (3840x2160)
+        monitor_fmt = f"UHD 2160p {frame_rate}"
+    elif tl_w == 1920:  # HD
+        monitor_fmt = f"HD 1080p {frame_rate}"
+    else:
+        monitor_fmt = f"UHD 2160p {frame_rate}"
+    r_monitor = project.SetSetting("videoMonitorFormat", monitor_fmt)
+
+    # Color management — defaults to Rec.2100 ST2084, user can override
+    project.SetSetting("colorScienceMode", "davinciYRGB")
+    project.SetSetting("colorSpaceTimeline", timeline_color_space)
+    project.SetSetting("colorSpaceOutput", output_color_space)
+    project.SetSetting("separateColorSpaceAndGamma", "0")
+
+    # Image scaling settings
+    project.SetSetting("imageResizeMode", "sharper")
+    project.SetSetting("imageDeinterlaceQuality", "normal")
+    project.SetSetting("timelineInputResMismatchBehavior", "centerCrop")
+    project.SetSetting("timelineOutputResMatchTimelineRes", "1")
+    project.SetSetting("timelineOutputResMismatchBehavior", "centerCrop")
+
+    # Video monitoring options for Dolby Vision testing
+    project.SetSetting("videoMonitorUse444SDI", "1")
+    project.SetSetting("videoMonitorSDIConfiguration", "quad_link")
+    project.SetSetting("videoDataLevels", "Full")
+
+    # Try 12-bit (requires compatible SDI hardware), fall back to 10-bit, then 8-bit
+    project.SetSetting("videoMonitorBitDepth", "12")
+    actual_depth = project.GetSetting("videoMonitorBitDepth")
+    if actual_depth != "12":
+        project.SetSetting("videoMonitorBitDepth", "10")
+        actual_depth = project.GetSetting("videoMonitorBitDepth")
+        if actual_depth != "10":
+            project.SetSetting("videoMonitorBitDepth", "8")
+            actual_depth = project.GetSetting("videoMonitorBitDepth")
+
+    console.print(f"Project settings: {tl_w}x{tl_h} @ {frame_rate}fps (source: {source_resolution})")
+    console.print(f"  Video monitoring: {monitor_fmt} ({'set' if r_monitor else 'failed'})")
+    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, Data levels: Full")
+    console.print(f"  Video bit depth: {actual_depth} bit (12 attempted, requires SDI hardware)")
+    console.print(
+        f"  Color: DaVinci YRGB, Timeline: {timeline_color_space}, Output: {output_color_space}"
+    )
+
+
+def create_bin_structure(
+    ctx: ResolveContext,
+    custom_structure: list[tuple[str, list[str]]] | None = None,
+) -> dict[str, Any]:
+    """Create the bin/folder structure in the media pool.
+
+    Args:
+        ctx: Resolve context
+        custom_structure: Optional custom bin structure. If None, uses default BIN_STRUCTURE.
+
+    Returns a dict mapping bin path strings (e.g. "HW5/Target_795") to folder objects.
+    """
+    media_pool = ctx.media_pool
+    root_folder = media_pool.GetRootFolder()
+    bin_map: dict[str, Any] = {"": root_folder}
+
+    structure = custom_structure if custom_structure is not None else BIN_STRUCTURE
+    console.print("[bold]Creating bin structure...[/bold]")
+
+    for top_bin, sub_bins in structure:
+        # Navigate to root first
+        media_pool.SetCurrentFolder(root_folder)
+
+        # Create top-level bin
+        top_folder = media_pool.AddSubFolder(root_folder, top_bin)
+        if top_folder is None:
+            # May already exist, try to find it
+            top_folder = _find_subfolder(root_folder, top_bin)
+        if top_folder is None:
+            console.print(f"  [red]Failed to create bin: {top_bin}[/red]")
+            continue
+
+        bin_map[top_bin] = top_folder
+        console.print(f"  Created bin: [cyan]{top_bin}[/cyan]")
+
+        # Create sub-bins (supports nested paths like "Generic TV/HDMIScrambled")
+        for sub_path in sub_bins:
+            parts = sub_path.split("/")
+            parent = top_folder
+            current_path = top_bin
+
+            for part in parts:
+                current_path = f"{current_path}/{part}"
+                sub_folder = media_pool.AddSubFolder(parent, part)
+                if sub_folder is None:
+                    sub_folder = _find_subfolder(parent, part)
+                if sub_folder is None:
+                    console.print(f"  [red]Failed to create bin: {current_path}[/red]")
+                    break
+                bin_map[current_path] = sub_folder
+                parent = sub_folder
+
+            if current_path in bin_map:
+                console.print(f"  Created bin: [cyan]{current_path}[/cyan]")
+
+    return bin_map
+
+
+def _find_subfolder(parent_folder: Any, name: str) -> Any | None:
+    """Find an existing subfolder by name."""
+    subfolders = parent_folder.GetSubFolderList()
+    if subfolders:
+        for folder in subfolders:
+            if folder.GetName() == name:
+                return folder
+    return None
+
+
+def import_media_files(
+    ctx: ResolveContext,
+    assignments: list[TrackAssignment],
+    bin_map: dict[str, Any],
+) -> dict[TrackRole, Any]:
+    """Import assigned video files into the correct media pool bins.
+
+    Returns map of role to MediaPoolItem.
+    """
+    media_pool = ctx.media_pool
+    media_items: dict[TrackRole, Any] = {}
+
+    for assignment in assignments:
+        if assignment.file_path is None or not assignment.file_path.exists():
+            continue
+
+        # Determine target bin for this track
+        target_bin_path = TRACK_BIN_MAP.get(assignment.role, "")
+        target_folder = bin_map.get(target_bin_path)
+
+        if target_folder is None:
+            console.print(
+                f"  [yellow]Bin '{target_bin_path}' not found, importing to root[/yellow]"
+            )
+            target_folder = media_pool.GetRootFolder()
+
+        # Set current folder and import
+        file_str = str(assignment.file_path)
+        media_pool.SetCurrentFolder(target_folder)
+        console.print(f"  [dim]Importing from: {file_str}[/dim]")
+        imported = media_pool.ImportMedia([file_str])
+
+        if imported and len(imported) > 0:
+            media_items[assignment.role] = imported[0]
+            bin_label = target_bin_path or "Master (root)"
+            console.print(
+                f"  Imported: [cyan]{imported[0].GetName()}[/cyan] "
+                f"-> {assignment.role.value} [dim]({bin_label})[/dim]"
+            )
+        else:
+            console.print(
+                f"  [red]Failed to import: {assignment.file_path.name}[/red]"
+            )
+
+    return media_items
+
+
+def create_quad_timeline(
+    ctx: ResolveContext,
+    assignments: list[TrackAssignment],
+    media_items: dict[TrackRole, Any],
+    timeline_name: str = "Dolby Quad View",
+    track_names: dict[TrackRole, str] | None = None,
+    start_timecode: str = "00:00:00:00",
+) -> Any:
+    """Create a timeline with 7 video tracks and quad transforms applied."""
+    media_pool = ctx.media_pool
+
+    # Create empty timeline
+    timeline = media_pool.CreateEmptyTimeline(timeline_name)
+    if timeline is None:
+        console.print("[red]Failed to create timeline[/red]")
+        raise SystemExit(1)
+
+    ctx.project.SetCurrentTimeline(timeline)
+    ctx.timeline = timeline
+
+    # Set timeline start timecode
+    timeline.SetStartTimecode(start_timecode)
+
+    # Ensure we have 7 video tracks
+    current_track_count = timeline.GetTrackCount("video")
+    for _ in range(7 - current_track_count):
+        timeline.AddTrack("video")
+
+    console.print(f"Created timeline: [green]{timeline_name}[/green] with 7 video tracks")
+    console.print(f"  Start timecode: {start_timecode}")
+
+    # Apply custom track names
+    if track_names:
+        _apply_track_names(ctx, track_names)
+
+    # Place clips on tracks and apply transforms
+    _place_clips_on_tracks(ctx, assignments, media_items)
+
+    return timeline
+
+
+def _apply_track_names(ctx: ResolveContext, track_names: dict[TrackRole, str]) -> None:
+    """Set custom names on video tracks."""
+    timeline = ctx.timeline
+    if timeline is None:
+        return
+
+    for role, name in track_names.items():
+        track_num = list(TrackRole).index(role) + 1
+        timeline.SetTrackName("video", track_num, name)
+        console.print(f"  Track V{track_num} named: [cyan]{name}[/cyan]")
+
+
+def _place_clips_on_tracks(
+    ctx: ResolveContext,
+    assignments: list[TrackAssignment],
+    media_items: dict[TrackRole, Any],
+) -> None:
+    """Place media items on their assigned tracks and apply quad transforms.
+
+    Uses per-track auto-selection to ensure clips land on the correct track.
+    """
+    timeline = ctx.timeline
+    if timeline is None:
+        return
+
+    # First, disable auto-select on ALL video tracks
+    track_count = timeline.GetTrackCount("video")
+    for t in range(1, track_count + 1):
+        timeline.SetTrackEnable("video", t, True)
+
+    # Create V1 transform templates FIRST (InsertGenerator ripple-pushes all tracks,
+    # so we do it before placing any media clips). Duration from media pool items.
+    for assignment in assignments:
+        if assignment.role == TrackRole.QUAD_TEMPLATE:
+            _create_transform_templates(ctx, assignment.track_number, media_items)
+            break
+
+    # Place media clips on V2-V7, compensating for ripple offset
+    for assignment in assignments:
+        if assignment.role == TrackRole.QUAD_TEMPLATE:
+            continue
+
+        if assignment.file_path is None or assignment.role not in media_items:
+            continue
+
+        track_num = assignment.track_number
+        item = media_items[assignment.role]
+
+        timeline.SetCurrentTimecode(timeline.GetStartTimecode())
+
+        clip_info = {
+            "mediaPoolItem": item,
+            "trackIndex": track_num,
+            "recordFrame": timeline.GetStartFrame(),
+        }
+        result = ctx.media_pool.AppendToTimeline([clip_info])
+
+        if not result:
+            clip_info = {
+                "mediaPoolItem": item,
+                "trackIndex": track_num,
+            }
+            result = ctx.media_pool.AppendToTimeline([clip_info])
+
+        if result:
+            console.print(f"  Placed [cyan]{item.GetName()}[/cyan] on track V{track_num}")
+
+            if assignment.role in models.QUAD_TRANSFORMS:
+                _apply_transform(ctx, track_num, assignment.role)
+        else:
+            console.print(f"  [red]Failed to place clip on track V{track_num}[/red]")
+
+    # Disable optional tracks (V1, V2, V7)
+    for assignment in assignments:
+        if not assignment.enabled:
+            timeline.SetTrackEnable("video", assignment.track_number, False)
+            console.print(f"  Track V{assignment.track_number} disabled")
+
+
+def _create_transform_templates(
+    ctx: ResolveContext,
+    track_number: int,
+    media_items: dict[TrackRole, Any] | None = None,
+) -> None:
+    """Create V1 with 4 Solid Color compound clips (Quad 1-4) with quad transforms.
+
+    Inserts 4 generators on V1, converts each to a compound clip, applies
+    the matching quad transform, and colors it Orange. All on the main timeline.
+    """
+    timeline = ctx.timeline
+    media_pool = ctx.media_pool
+    if timeline is None or media_pool is None:
+        return
+
+    root_folder = media_pool.GetRootFolder()
+    media_pool.SetCurrentFolder(root_folder)
+
+    # Get total video duration — try timeline clips first, then media pool items
+    quad_roles = [TrackRole.HW2_300_NIT, TrackRole.L1SHW_300,
+                  TrackRole.HW2_795_STRETCH_1500, TrackRole.L1SHW_795_STRETCH_1500]
+    total_frames = 0
+
+    # Try from timeline clips
+    for role in quad_roles:
+        track_num = list(TrackRole).index(role) + 1
+        clips = timeline.GetItemListInTrack("video", track_num)
+        if clips:
+            total_frames = clips[-1].GetEnd()
+            break
+
+    # Fallback: get duration from media pool items
+    if total_frames == 0 and media_items:
+        for role in quad_roles:
+            mpi = media_items.get(role)
+            if mpi:
+                props = mpi.GetClipProperty()
+                frames_str = props.get("Frames", "0")
+                try:
+                    total_frames = int(frames_str)
+                except (ValueError, TypeError):
+                    pass
+                if total_frames > 0:
+                    break
+
+    if total_frames == 0:
+        console.print("  [yellow]Could not determine video duration for V1 templates[/yellow]")
+        return
+
+    quad_duration = total_frames // 4
+    generators_per_quad = (quad_duration // 120) + 1
+    console.print(
+        f"  V1 templates: {total_frames} total frames, "
+        f"{quad_duration} per quad ({generators_per_quad} generators each)"
+    )
+
+    quad_names = ["Quad 1", "Quad 2", "Quad 3", "Quad 4"]
+
+    for i, name in enumerate(quad_names):
+        # Track how many clips are on V1 before we insert
+        clips_before = timeline.GetItemListInTrack("video", track_number) or []
+        count_before = len(clips_before)
+
+        # Insert N generators to build up to target duration
+        for _ in range(generators_per_quad):
+            timeline.InsertGeneratorIntoTimeline("Solid Color")
+
+        # Get the new generators we just inserted
+        clips_after = timeline.GetItemListInTrack("video", track_number) or []
+        new_gens = clips_after[count_before:]
+
+        if not new_gens:
+            console.print(f"  [red]Failed to insert generators for {name}[/red]")
+            continue
+
+        # Create one Compound Clip from all the generators
+        compound = timeline.CreateCompoundClip(new_gens, {"name": name})
+        if compound is None:
+            console.print(f"  [red]Failed to create compound clip for {name}[/red]")
+            continue
+
+        # Apply quad transform
+        transform = models.QUAD_TRANSFORMS.get(quad_roles[i])
+        if transform:
+            compound.SetProperty("ZoomX", transform.zoom_x)
+            compound.SetProperty("ZoomY", transform.zoom_y)
+            compound.SetProperty("Pan", transform.position_x)
+            compound.SetProperty("Tilt", transform.position_y)
+
+        # Color Orange
+        compound.SetClipColor("Orange")
+
+        console.print(f"  {name}: {compound.GetDuration()} frames, Orange, transform applied")
+
+
+def add_extra_tracks(ctx: ResolveContext, extras: list[dict]) -> None:
+    """Import extra video files into a Master/Extras bin and add them as
+    additional video tracks above the existing tracks. No transform applied.
+
+    `extras` is a list of {"name": str, "file_path": str} dicts.
+    """
+    timeline = ctx.timeline
+    media_pool = ctx.media_pool
+    if timeline is None or media_pool is None or not extras:
+        return
+
+    # Ensure Extras bin exists under Master root
+    root_folder = media_pool.GetRootFolder()
+    extras_folder = _find_subfolder(root_folder, "Extras")
+    if extras_folder is None:
+        media_pool.SetCurrentFolder(root_folder)
+        extras_folder = media_pool.AddSubFolder(root_folder, "Extras")
+    if extras_folder is None:
+        console.print("  [red]Failed to create Extras bin[/red]")
+        return
+
+    media_pool.SetCurrentFolder(extras_folder)
+
+    # Iterate in REVERSE: extras[0] is the picker's topmost (newest). Since
+    # AddTrack always places the new track at the top of the stack, we add
+    # extras[-1] (oldest) first and extras[0] (newest) last so the picker's
+    # topmost ends up as the highest video track number in Resolve.
+    for ex in reversed(extras):
+        file_path = ex.get("file_path")
+        name = ex.get("name") or "Extra"
+        if not file_path:
+            continue
+        if not Path(file_path).exists():
+            console.print(f"  [yellow]Skipping missing file: {file_path}[/yellow]")
+            continue
+
+        # Import file
+        imported = media_pool.ImportMedia([str(file_path)])
+        if not imported:
+            console.print(f"  [red]Failed to import: {file_path}[/red]")
+            continue
+        item = imported[0]
+
+        # Add a new video track at the TOP of the stack (highest track number).
+        # Capture count before+after so the new index is unambiguous regardless
+        # of whether AddTrack appends or inserts.
+        count_before = timeline.GetTrackCount("video")
+        timeline.AddTrack("video")
+        count_after = timeline.GetTrackCount("video")
+        if count_after <= count_before:
+            console.print("  [red]AddTrack failed (count did not increase)[/red]")
+            continue
+        new_track_num = count_after  # new track is always the topmost (highest index)
+
+        # Place clip on the new track
+        timeline.SetCurrentTimecode(timeline.GetStartTimecode())
+        result = media_pool.AppendToTimeline([{
+            "mediaPoolItem": item,
+            "trackIndex": new_track_num,
+            "recordFrame": timeline.GetStartFrame(),
+        }])
+        if not result:
+            result = media_pool.AppendToTimeline([{
+                "mediaPoolItem": item,
+                "trackIndex": new_track_num,
+            }])
+
+        # Name the new track
+        timeline.SetTrackName("video", new_track_num, name)
+
+        if result:
+            console.print(
+                f"  Added extra: [cyan]{name}[/cyan] -> V{new_track_num} "
+                f"[dim]({Path(file_path).name})[/dim]"
+            )
+        else:
+            console.print(f"  [red]Failed to place clip on V{new_track_num}[/red]")
+
+
+def _apply_transform(ctx: ResolveContext, track_number: int, role: TrackRole) -> None:
+    """Apply quad position/scale transform to a clip on the given track."""
+    timeline = ctx.timeline
+    if timeline is None:
+        return
+
+    transform = models.QUAD_TRANSFORMS.get(role)
+    if transform is None:
+        return
+
+    clips = timeline.GetItemListInTrack("video", track_number)
+    if not clips:
+        return
+
+    for clip in clips:
+        clip.SetProperty("ZoomX", transform.zoom_x)
+        clip.SetProperty("ZoomY", transform.zoom_y)
+        clip.SetProperty("Pan", transform.position_x)
+        clip.SetProperty("Tilt", transform.position_y)
+
+    console.print(
+        f"  Transform applied: zoom={transform.zoom_x}, "
+        f"pos=({transform.position_x}, {transform.position_y})"
+    )

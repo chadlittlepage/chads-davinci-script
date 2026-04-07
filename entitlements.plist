@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime: required for notarization -->
+
+    <!-- py2app embeds a Python interpreter that uses JIT-style code paths;
+         these two are required or the app won't launch under hardened runtime. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- Allow loading the bundled mediainfo / ffprobe binaries (signed with
+         the same Developer ID, but py2app's loader needs this in some setups). -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- AppleScript / Apple Events automation of DaVinci Resolve.
+         The app sends UI commands via osascript to set the playback frame rate. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- File access. Notarized (non-MAS) apps don't run inside the App Sandbox,
+         so user-selected file access is unrestricted; these keys are kept for
+         documentation and in case the app is later sandboxed. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

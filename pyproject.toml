@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chads-davinci-script"
+version = "0.2.0"
+description = "Chad's DaVinci Script - Quad-view tool with native macOS Cocoa GUI"
+authors = [{name = "Chad Littlepage", email = "chad.littlepage@gmail.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.0.0",
+    "pyobjc-core>=10.0",
+    "pyobjc-framework-Cocoa>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+chads-davinci-script = "chads_davinci.build_main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true

@@ -1,0 +1,39 @@
+# --- Build artifacts ---
+build/
+dist/
+*.egg-info/
+src/*.egg-info/
+*.dmg
+*.zip
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.bak
+.venv/
+venv/
+.python-version
+
+# --- Bundled third-party binaries (NOT redistributed via the repo) ---
+# mediainfo (GPLv3) and ffprobe (LGPL) must be downloaded by the
+# developer at build time. See bin/README.md.
+bin/mediainfo
+bin/ffprobe
+
+# --- macOS / editor cruft ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Local notes / dev scratch ---
+info.md
+*.tmp
+
+# --- Notarization / code-signing artifacts ---
+*.p12
+*.cer
+*.mobileprovision
+notarization-history*.json

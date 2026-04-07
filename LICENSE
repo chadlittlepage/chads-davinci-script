@@ -1,0 +1,12 @@
+Copyright (c) 2026 Chad Littlepage. All Rights Reserved.
+
+This software and its source code are proprietary and confidential.
+No part of this project may be reproduced, distributed, modified, or
+used in any form without the prior written permission of the copyright
+holder.
+
+Bundled third-party binaries (mediainfo, ffprobe) are NOT redistributed
+through this repository and remain under their respective open-source
+licenses (GPL v3 and LGPL v2.1+ respectively).
+
+Contact: chad.littlepage@gmail.com
