@@ -16,7 +16,12 @@ console = Console()
 
 
 def _run_applescript(script: str) -> str | None:
-    """Run an AppleScript and return stdout, or None on failure."""
+    """Run an AppleScript and return stdout, or None on failure.
+
+    If the failure is the macOS Accessibility permission denial (TCC error
+    -1719), we return None silently — that path is non-fatal and would
+    otherwise spam the console on every run.
+    """
     try:
         result = subprocess.run(
             ["osascript", "-e", script],
@@ -24,9 +29,13 @@ def _run_applescript(script: str) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-        else:
-            console.print(f"[yellow]AppleScript error: {result.stderr.strip()}[/yellow]")
+        stderr = result.stderr.strip()
+        if "-1719" in stderr or "not allowed assistive access" in stderr:
+            # Accessibility permission not granted. The build still works
+            # without this; the playback frame rate just won't be auto-set.
             return None
+        console.print(f"[yellow]AppleScript error: {stderr}[/yellow]")
+        return None
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         console.print(f"[yellow]AppleScript failed: {e}[/yellow]")
         return None
@@ -79,6 +88,8 @@ return "OK"
     if result == "OK":
         console.print(f"  Playback frame rate set to {frame_rate} (via UI automation)")
         return True
-    else:
-        console.print("[yellow]  Could not set playback frame rate via UI automation[/yellow]")
-        return False
+    # Silent fall-through: the timeline frame rate is already set via the
+    # Resolve API, so the playback monitor will inherit it. The UI-automation
+    # path is best-effort and only matters when Resolve's API treats
+    # `timelinePlaybackFrameRate` as read-only on this version.
+    return False

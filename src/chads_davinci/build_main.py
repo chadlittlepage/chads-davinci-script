@@ -34,6 +34,26 @@ BANNER = (
 )
 
 
+def _show_alert(title: str, message: str, critical: bool = False) -> None:
+    """Show a final native NSAlert before the process exits.
+
+    Without this, after the build subprocess returns the parent Cocoa app
+    has nothing left to do and silently exits, which feels to the user like
+    the app "just quit". This gives an explicit success / failure handoff.
+    """
+    try:
+        from AppKit import NSAlert, NSAlertStyleCritical, NSAlertStyleInformational
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(title)
+        alert.setInformativeText_(message)
+        alert.setAlertStyle_(NSAlertStyleCritical if critical else NSAlertStyleInformational)
+        alert.addButtonWithTitle_("OK")
+        alert.runModal()
+    except Exception:
+        # Headless / no NSApp / something else weird — fall back to stdout.
+        console.print(f"[bold]{title}[/bold]\n{message}")
+
+
 def main() -> int:
     """Run the full build pipeline."""
     # Set up console logging for crash reports
@@ -130,6 +150,11 @@ def main() -> int:
         export_dir = picker_result.export_directory or str(REPORTS_DIR)
         subprocess.run(["open", export_dir], check=False)
 
+        _show_alert(
+            "Metadata Export complete",
+            f"Reports saved to:\n{export_dir}\n\n"
+            f"A Finder window has been opened at that location.",
+        )
         return 0
 
     # Step 3: Connect to Resolve and set project settings
@@ -211,8 +236,21 @@ def main() -> int:
     if result.returncode != 0:
         if result.stderr:
             console.print(f"[red]{result.stderr}[/red]")
+        _show_alert(
+            "Build failed",
+            "The Resolve build subprocess returned an error.\n\n"
+            "Open Help → Export Console Log… to capture the details.",
+            critical=True,
+        )
         return 1
 
+    _show_alert(
+        "Build complete",
+        f"Project: {picker_result.project_name}\n"
+        f"Folder:  {picker_result.folder_name or '(none)'}\n"
+        f"Timeline: Quad View\n\n"
+        f"Switch to DaVinci Resolve to view the project.",
+    )
     return 0
 
 

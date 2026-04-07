@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-04-07
+
+### Added
+- **Build complete / Metadata Export complete dialogs.** After the build
+  subprocess returns, the parent Cocoa app now shows a native NSAlert
+  with the project name, folder, and timeline name (or, in metadata-only
+  mode, the export folder path) before exiting. Previously the app would
+  silently exit after the picker closed, which felt to the user like
+  the app "just quit" mid-task.
+- **Build failed dialog.** Same idea on the error path: a critical-style
+  NSAlert pointing the user at Help → Export Console Log… for details.
+
+### Fixed
+- **Quiet the AppleScript "not allowed assistive access" warning.** The
+  UI-automation fallback for setting the *playback* monitor frame rate
+  needs the macOS Accessibility permission, which is independent of the
+  Apple Events entitlement. When that permission isn't granted (the most
+  common case), the build still works fine because the timeline frame
+  rate has already been set via the Resolve API and the playback
+  monitor inherits it. The error log is now suppressed in this specific
+  case so the console isn't spammed on a successful build.
+
 ## [0.2.1] — 2026-04-07
 
 ### Fixed
@@ -73,6 +95,7 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.2
 [0.2.1]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.1
 [0.2.0]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.0
