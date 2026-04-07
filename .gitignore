@@ -13,6 +13,7 @@ __pycache__/
 *.pyd
 *.bak
 .venv/
+.venv-build/
 venv/
 .python-version
 
