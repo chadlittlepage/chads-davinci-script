@@ -192,8 +192,15 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
     reliable than string-based parsing of `public.file-url`, especially
     on macOS 15 where Finder sometimes packs the URL data in ways that
     `URLWithString:` parses incorrectly (returning only the volume root).
+
+    Logs every attempt + success to console.log so future tester reports
+    show exactly what Finder sent and which method extracted the path.
     """
     from AppKit import NSURL
+    console = Console()
+
+    types = list(pasteboard.types() or [])
+    console.print(f"[dim]Drag drop: pasteboard types = {types}[/dim]")
 
     # Method 1 (preferred): NSPasteboard.readObjectsForClasses:options:
     try:
@@ -203,40 +210,52 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
+                    console.print(
+                        f"[dim]Drag drop: method=readObjectsForClasses path={p}[/dim]"
+                    )
                     return str(p)
     except Exception as e:
-        console = Console()
-        console.print(f"[dim]readObjectsForClasses failed: {e}[/dim]")
+        console.print(f"[dim]Drag drop: readObjectsForClasses failed: {e}[/dim]")
 
     # Method 2: iterate per-item, parsing each item's public.file-url
     try:
         items = pasteboard.pasteboardItems() or []
-        for item in items:
+        console.print(f"[dim]Drag drop: pasteboardItems count={len(items)}[/dim]")
+        for idx, item in enumerate(items):
             s = item.stringForType_(_FILE_URL_UTI)
             if not s:
+                console.print(
+                    f"[dim]Drag drop: item[{idx}] no public.file-url[/dim]"
+                )
                 continue
+            console.print(
+                f"[dim]Drag drop: item[{idx}] public.file-url string = {s}[/dim]"
+            )
             url = NSURL.URLWithString_(s)
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
+                    console.print(
+                        f"[dim]Drag drop: method=pasteboardItems path={p}[/dim]"
+                    )
                     return str(p)
     except Exception as e:
-        console = Console()
-        console.print(f"[dim]pasteboardItems iteration failed: {e}[/dim]")
+        console.print(f"[dim]Drag drop: pasteboardItems iteration failed: {e}[/dim]")
 
     # Method 3: legacy NSFilenamesPboardType (deprecated but sometimes still
     # populated, especially on older macOS versions)
-    types = pasteboard.types() or []
     if NSFilenamesPboardType in types:
         files = pasteboard.propertyListForType_(NSFilenamesPboardType)
         if files and len(files) > 0:
+            console.print(
+                f"[dim]Drag drop: method=NSFilenamesPboardType path={files[0]}[/dim]"
+            )
             return str(files[0])
 
     # All methods failed — log the pasteboard state for diagnosis.
-    console = Console()
     console.print(
-        f"[yellow]Drag drop: could not extract file path from pasteboard. "
-        f"Available types: {list(types)}[/yellow]"
+        f"[yellow]Drag drop: ALL methods failed. "
+        f"Available types: {types}[/yellow]"
     )
     return None
 
@@ -280,8 +299,12 @@ class DropTextField(NSTextField):
     @objc.signature(b"Q@:@")
     def draggingEntered_(self, sender):
         pasteboard = sender.draggingPasteboard()
-        types = pasteboard.types() or []
-        if NSFilenamesPboardType in types or _FILE_URL_UTI in types:
+        types = list(pasteboard.types() or [])
+        accepts = NSFilenamesPboardType in types or _FILE_URL_UTI in types
+        Console().print(
+            f"[dim]Drag enter: types={types} accepts={accepts}[/dim]"
+        )
+        if accepts:
             self._set_drag_highlight(True)
             return NSDragOperationCopy
         return NSDragOperationNone

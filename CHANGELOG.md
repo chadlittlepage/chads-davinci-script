@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-04-07
+
+### Added
+- **Verbose drag-and-drop diagnostics in console.log.** Every drag enter
+  and every drop now logs:
+  1. The full list of pasteboard types Finder sent
+  2. Whether the drop target accepted the drag
+  3. The pasteboardItems count (when method 2 is reached)
+  4. The raw `public.file-url` string per item
+  5. Which extraction method (`readObjectsForClasses` /
+     `pasteboardItems` / `NSFilenamesPboardType`) successfully produced
+     a path, and what that path was
+  6. The full pasteboard type list on total failure
+
+  This means future tester reports about drag-drop issues can be
+  diagnosed by reading `console.log` once instead of guessing — we'll
+  see exactly what Finder sent and which extraction path took it.
+
 ## [0.2.4] — 2026-04-07
 
 ### Fixed
@@ -147,7 +165,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.5
 [0.2.4]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.4
 [0.2.3]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.3
 [0.2.2]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.2
