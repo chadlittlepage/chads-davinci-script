@@ -26,10 +26,12 @@ See the in-app manual for the complete user-facing reference.
 
 ## Install (end users)
 
-Download the latest signed/notarized `Chads DaVinci Script.dmg` from the
-project's GitHub Releases page, drag the app to `/Applications`, and
-launch. The first time you set the playback frame rate, macOS will ask
-to allow the app to control DaVinci Resolve — click OK once.
+Public download (no GitHub login required):
+<https://github.com/chadlittlepage/chads-davinci-script-releases/releases/latest>
+
+Drag the `.app` from the DMG to `/Applications` and launch. The first
+time you set the playback frame rate, macOS will ask to allow the app
+to control DaVinci Resolve — click OK once.
 
 ## Build from source (developers)
 

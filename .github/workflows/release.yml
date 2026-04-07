@@ -98,7 +98,7 @@ jobs:
           chmod +x ./build_and_sign.sh
           ./build_and_sign.sh
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (private source repo)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -112,3 +112,14 @@ jobs:
           gh release create "$TAG" "$DMG_PATH" \
             --title "$TAG" \
             --notes "Notarized DMG for $TAG. Drag the .app to /Applications and double-click to open — no Gatekeeper warnings."
+
+      - name: Mirror DMG to public release repo
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          DMG_PATH="dist/Chads DaVinci Script.dmg"
+          gh release create "$TAG" "$DMG_PATH" \
+            --repo chadlittlepage/chads-davinci-script-releases \
+            --title "$TAG" \
+            --notes "Notarized macOS DMG for $TAG. Drag to /Applications and double-click — no Gatekeeper warnings."
