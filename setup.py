@@ -61,9 +61,12 @@ OPTIONS = {
         "chads_davinci.menu_bar",
         "chads_davinci.metadata",
         "chads_davinci.models",
+        "chads_davinci.paths",
         "chads_davinci.resolve_connection",
         "chads_davinci.settings_io",
         "chads_davinci.ui_automation",
+        # Quartz needed for typed CGColor creation (avoids PyObjC bridge warnings)
+        "Quartz",
     ],
     "excludes": [
         "tkinter",

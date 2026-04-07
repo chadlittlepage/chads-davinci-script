@@ -196,8 +196,12 @@ class DropTextField(NSTextField):
         if layer is None:
             return
         if on:
-            blue = NSColor.controlAccentColor() if hasattr(NSColor, "controlAccentColor") else NSColor.systemBlueColor()
-            layer.setBorderColor_(blue.CGColor())
+            # Use CGColorCreateGenericRGB so PyObjC's bridge knows the type
+            # (avoids ObjCPointerWarning that NSColor.CGColor() triggers).
+            from Quartz import CGColorCreateGenericRGB
+            # Apple's controlAccentColor (~ macOS blue) in sRGB.
+            border = CGColorCreateGenericRGB(0.0, 0.478, 1.0, 1.0)
+            layer.setBorderColor_(border)
             layer.setBorderWidth_(2.0)
             layer.setCornerRadius_(5.0)
         else:
@@ -1152,9 +1156,10 @@ def pick_files():
     y -= 30
 
     # Separator
+    from Quartz import CGColorCreateGenericRGB
     sep_view = NSView.alloc().initWithFrame_(NSMakeRect(margin, y, win_w - 2 * margin, 1))
     sep_view.setWantsLayer_(True)
-    sep_view.layer().setBackgroundColor_(NSColor.gridColor().CGColor())
+    sep_view.layer().setBackgroundColor_(CGColorCreateGenericRGB(0.5, 0.5, 0.5, 0.4))
     content.addSubview_(sep_view)
     y -= 20
 

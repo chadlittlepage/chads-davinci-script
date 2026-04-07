@@ -107,12 +107,13 @@ def show_about_window() -> None:
             image_view.setAutoresizingMask_(2 | 16)  # flexible W + H
             content.addSubview_(image_view)
 
-    # Semi-transparent dark overlay covering the entire window for text readability
+    # Semi-transparent dark overlay covering the entire window for text readability.
+    # Use Quartz CGColorCreateGenericRGB so PyObjC's bridge knows the type
+    # (avoids ObjCPointerWarning that NSColor.CGColor() triggers).
+    from Quartz import CGColorCreateGenericRGB
     overlay = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, win_w, win_h))
     overlay.setWantsLayer_(True)
-    overlay.layer().setBackgroundColor_(
-        NSColor.colorWithCalibratedRed_green_blue_alpha_(0, 0, 0, 0.65).CGColor()
-    )
+    overlay.layer().setBackgroundColor_(CGColorCreateGenericRGB(0.0, 0.0, 0.0, 0.65))
     overlay.setAutoresizingMask_(2 | 16)
     content.addSubview_(overlay)
 
