@@ -23,9 +23,15 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install py2app rich pyobjc-core pyobjc-framework-Cocoa
-          brew install create-dmg
+          python -m pip install --upgrade pip 'setuptools<81'
+          python -m pip install \
+            py2app \
+            dmgbuild \
+            Pillow \
+            rich \
+            pyobjc-core \
+            pyobjc-framework-Cocoa \
+            pyobjc-framework-Quartz
 
       - name: Download bundled binaries (mediainfo + ffprobe)
         # The binaries are stored as assets on the dedicated 'build-deps-v1'

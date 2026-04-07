@@ -131,10 +131,9 @@ rm -f "${ZIP_PATH}"
 # Use dmgbuild (Python) instead of create-dmg so the .DS_Store is written
 # directly with our exact icon size, positions, and background image.
 if ! python3 -c "import dmgbuild" 2>/dev/null; then
-    echo "WARNING: dmgbuild not installed in current Python. Run:"
-    echo "  pip install dmgbuild"
-    echo "Skipping DMG creation. The signed/notarized .app is at: ${APP_PATH}"
-    exit 0
+    echo "ERROR: dmgbuild is not installed in the current Python."
+    echo "Install it with:  pip install dmgbuild"
+    exit 1
 fi
 
 echo "==> Building DMG via dmgbuild..."
