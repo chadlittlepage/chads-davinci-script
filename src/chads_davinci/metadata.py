@@ -57,11 +57,23 @@ def _resolve_tool(name: str) -> str | None:
     bundled = _find_bundled_tool(name)
     if bundled:
         _TOOL_CACHE[name] = bundled
+        _log_tool_version_once(name, bundled)
         return bundled
     out = _run_cmd(["which", name])
     resolved = out.strip() if out else None
     _TOOL_CACHE[name] = resolved
+    if resolved:
+        _log_tool_version_once(name, resolved)
     return resolved
+
+
+def _log_tool_version_once(name: str, path: str) -> None:
+    """Best-effort: log the tool's version line on first use. Never raises."""
+    try:
+        from chads_davinci.diagnostics import log_tool_version
+        log_tool_version(name, path)
+    except Exception:
+        pass
 
 
 def _run_cmd(cmd: list[str]) -> str | None:

@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-04-07
+
+### Added
+- **Session-start system probe.** Every launch writes a one-time block
+  to console.log with macOS version, architecture, Python version,
+  PyObjC version, locale, app bundle path, screen info, and bundled
+  binary paths/sizes/architectures. Future tester reports can be
+  diagnosed without asking the user "what version of macOS are you
+  on" — it's right at the top of the log.
+- **Resolve API probe.** When the app connects to DaVinci Resolve,
+  it logs the Resolve product, version string, and database count.
+- **Bundled tool version logging.** First time MediaInfo or ffprobe
+  is invoked in a session, the tool's version line is logged to
+  console.log so we know it's actually running and not quarantined.
+- **Global unhandled-exception hook.** Any Python exception that
+  isn't caught now writes a full traceback to console.log via the
+  rich console. Previously these would only surface as the bare
+  py2app fatal-error dialog with no context.
+- **Screenshot capture on Export Console Log.** When the user picks
+  Help → Export Console Log…, the app now also captures a PNG
+  screenshot of its main window (via `screencapture -l <window-id>`)
+  and saves it next to the .log file with a matching name. The
+  screenshot is taken BEFORE the save panel opens so the panel
+  doesn't appear in the captured image. The export-success dialog
+  lists both files and asks the user to email both to support.
+
+### Internal
+- New `src/chads_davinci/diagnostics.py` module holding the system
+  probe, exception hook, Resolve probe, tool version logger, and
+  screenshot helper. Added to py2app includes list.
+
 ## [0.2.5] — 2026-04-07
 
 ### Added
@@ -165,7 +196,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.6
 [0.2.5]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.5
 [0.2.4]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.4
 [0.2.3]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.3

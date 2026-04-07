@@ -124,6 +124,17 @@ def main() -> int:
     except (ImportError, OSError):
         pass
 
+    # Diagnostics: install global exception hook + write system probe to log
+    try:
+        from chads_davinci.diagnostics import (
+            install_global_exception_hook,
+            write_session_probe,
+        )
+        install_global_exception_hook()
+        write_session_probe()
+    except Exception:
+        pass
+
     console.print(BANNER.format(version=__version__))
     console.print()
 
@@ -231,6 +242,11 @@ def main() -> int:
         database_name=picker_result.database_name,
         folder_name=picker_result.folder_name,
     )
+    try:
+        from chads_davinci.diagnostics import log_resolve_connection
+        log_resolve_connection(ctx)
+    except Exception:
+        pass
     set_project_settings(
         ctx,
         frame_rate=picker_result.frame_rate,
