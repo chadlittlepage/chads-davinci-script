@@ -68,7 +68,8 @@ fi
 trap '[[ "${PYPROJECT_HIDDEN}" == "1" ]] && [[ -f pyproject.toml.bak ]] && mv pyproject.toml.bak pyproject.toml || true' EXIT
 
 echo "==> Building .app via py2app..."
-python3 setup.py py2app
+# src-layout: tell modulegraph where to find chads_davinci.
+PYTHONPATH=src python3 setup.py py2app
 
 if [[ ! -d "${APP_PATH}" ]]; then
     echo "ERROR: py2app did not produce ${APP_PATH}"
@@ -127,26 +128,18 @@ rm -f "${ZIP_PATH}"
 
 # ----- 5. Build the DMG ----------------------------------------------------
 
-if ! command -v create-dmg >/dev/null 2>&1; then
-    echo "WARNING: create-dmg not found. Install with: brew install create-dmg"
+# Use dmgbuild (Python) instead of create-dmg so the .DS_Store is written
+# directly with our exact icon size, positions, and background image.
+if ! python3 -c "import dmgbuild" 2>/dev/null; then
+    echo "WARNING: dmgbuild not installed in current Python. Run:"
+    echo "  pip install dmgbuild"
     echo "Skipping DMG creation. The signed/notarized .app is at: ${APP_PATH}"
     exit 0
 fi
 
-echo "==> Building DMG..."
+echo "==> Building DMG via dmgbuild..."
 rm -f "${DMG_PATH}"
-DMG_BG="assets/about_background.jpg"
-CREATE_DMG_ARGS=(
-    --volname "${APP_NAME}"
-    --window-pos 200 120
-    --window-size 600 400
-    --icon-size 100
-    --icon "${APP_NAME}.app" 150 200
-    --hide-extension "${APP_NAME}.app"
-    --app-drop-link 450 200
-)
-[[ -f "${DMG_BG}" ]] && CREATE_DMG_ARGS+=( --background "${DMG_BG}" )
-create-dmg "${CREATE_DMG_ARGS[@]}" "${DMG_PATH}" "${APP_PATH}"
+python3 -m dmgbuild -s dmg_settings.py "Chads DaVinci Script" "${DMG_PATH}"
 
 # ----- 6. Sign + notarize the DMG itself -----------------------------------
 
