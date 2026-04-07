@@ -28,26 +28,23 @@ jobs:
           brew install create-dmg
 
       - name: Download bundled binaries (mediainfo + ffprobe)
-        # mediainfo and ffprobe are NOT in the repo (license + size). They
-        # must be downloaded fresh on every CI run. Replace these URLs with
-        # the exact static-arm64 builds you trust.
+        # The binaries are stored as assets on the dedicated 'build-deps-v1'
+        # GitHub Release in this same repo (kept out of git history because
+        # of license + 65MB size). gh CLI handles auth via the workflow token.
         env:
-          MEDIAINFO_URL: ${{ vars.MEDIAINFO_URL }}
-          FFPROBE_URL:   ${{ vars.FFPROBE_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ -z "${MEDIAINFO_URL}" || -z "${FFPROBE_URL}" ]]; then
-            echo "ERROR: repo variables MEDIAINFO_URL and FFPROBE_URL must be set."
-            echo "Configure them at: Settings → Secrets and variables → Actions → Variables"
-            exit 1
-          fi
           mkdir -p bin
-          curl -L --fail "${MEDIAINFO_URL}" -o /tmp/mediainfo.zip
-          unzip -p /tmp/mediainfo.zip MediaInfo > bin/mediainfo
-          curl -L --fail "${FFPROBE_URL}"   -o /tmp/ffprobe.zip
-          unzip -p /tmp/ffprobe.zip ffprobe > bin/ffprobe
+          gh release download build-deps-v1 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'mediainfo' \
+            --pattern 'ffprobe' \
+            --dir bin \
+            --clobber
           chmod +x bin/mediainfo bin/ffprobe
           file bin/mediainfo bin/ffprobe
+          shasum -a 256 bin/mediainfo bin/ffprobe
 
       - name: Import Developer ID Application certificate
         env:

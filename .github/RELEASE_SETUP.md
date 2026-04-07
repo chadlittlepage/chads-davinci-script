@@ -37,18 +37,30 @@ Settings → Secrets and variables → Actions
 | `APPLE_TEAM_ID`                | your 10-char Team ID |
 | `APPLE_APP_SPECIFIC_PASSWORD`  | the app-specific password from step 1.2 |
 
-### Repository variables (Variables tab)
+### Bundled binaries (mediainfo + ffprobe)
 
-These are NOT secret — they're URLs to download the bundled binaries on
-each CI run (since `mediainfo` and `ffprobe` aren't checked into the repo).
+These are NOT in the repo (license + 65MB). They're stored as assets on a
+dedicated GitHub Release tagged `build-deps-v1` in this same repo, and the
+workflow downloads them via `gh release download` using the standard
+workflow token. No extra setup is required — it just works as long as the
+`build-deps-v1` release exists with `mediainfo` and `ffprobe` as assets.
 
-| Name | Value |
-|---|---|
-| `MEDIAINFO_URL` | direct URL to a static arm64 mediainfo zip (mediaarea.net) |
-| `FFPROBE_URL`   | direct URL to a static arm64 ffprobe zip (evermeet.cx) |
+To rotate the binaries (e.g. new ffmpeg version):
 
-If your URL serves a different archive format (.dmg, .tar.bz2, raw binary),
-update the `Download bundled binaries` step in `release.yml` accordingly.
+```bash
+# Replace the local files at bin/mediainfo and bin/ffprobe, then:
+gh release upload build-deps-v1 bin/mediainfo bin/ffprobe --clobber
+```
+
+To create a fresh release version (e.g. when you want a clean break):
+
+```bash
+gh release create build-deps-v2 bin/mediainfo bin/ffprobe \
+  --title "Build dependencies v2" \
+  --notes "..." \
+  --prerelease
+# then update the tag in .github/workflows/release.yml
+```
 
 ## 3. Cut a release
 
