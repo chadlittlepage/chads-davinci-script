@@ -42,7 +42,18 @@ def _show_alert(title: str, message: str, critical: bool = False) -> None:
     the app "just quit". This gives an explicit success / failure handoff.
     """
     try:
-        from AppKit import NSAlert, NSAlertStyleCritical, NSAlertStyleInformational
+        from AppKit import (
+            NSAlert,
+            NSAlertStyleCritical,
+            NSAlertStyleInformational,
+            NSApplication,
+        )
+        # Make sure the app is in the foreground or the alert can sit
+        # behind another window and look like a frozen UI.
+        try:
+            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
         alert = NSAlert.alloc().init()
         alert.setMessageText_(title)
         alert.setInformativeText_(message)
@@ -52,6 +63,56 @@ def _show_alert(title: str, message: str, critical: bool = False) -> None:
     except Exception:
         # Headless / no NSApp / something else weird — fall back to stdout.
         console.print(f"[bold]{title}[/bold]\n{message}")
+
+
+def _maybe_show_first_launch_welcome() -> None:
+    """On the very first launch (no marker file present), show a native
+    dialog that warns the user about the macOS permission prompts they
+    will see during the first build, BEFORE the picker opens. Subsequent
+    launches skip this dialog."""
+    from chads_davinci.paths import APP_SUPPORT_DIR
+    marker = APP_SUPPORT_DIR / ".first_launch_seen"
+    if marker.exists():
+        return
+    try:
+        from AppKit import (
+            NSAlert,
+            NSAlertStyleInformational,
+            NSApplication,
+            NSApplicationActivationPolicyRegular,
+        )
+        # Spin up NSApplication early so the welcome alert comes to the
+        # foreground (otherwise it can hide behind Resolve or Terminal).
+        app = NSApplication.sharedApplication()
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+        app.activateIgnoringOtherApps_(True)
+
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_("Welcome to Chad's DaVinci Script")
+        alert.setInformativeText_(
+            "Heads-up for first-time users:\n\n"
+            "• When you click OK to build a project, macOS will ask "
+            "permission for this app to control DaVinci Resolve. "
+            "Click \"OK\" / \"Allow\" — it only happens once.\n\n"
+            "• Make sure DaVinci Resolve is running BEFORE you click "
+            "OK to build.\n\n"
+            "• Drag video files from Finder directly onto the path "
+            "fields. The field will outline in blue when ready to drop.\n\n"
+            "• All your settings auto-save and persist between launches. "
+            "Use \"Reset Defaults\" if you ever want to start fresh."
+        )
+        alert.setAlertStyle_(NSAlertStyleInformational)
+        alert.addButtonWithTitle_("Got it")
+        alert.runModal()
+    except Exception:
+        # Best-effort; never block the app from starting.
+        pass
+    finally:
+        try:
+            APP_SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
+            marker.write_text("seen", encoding="utf-8")
+        except Exception:
+            pass
 
 
 def main() -> int:
@@ -65,6 +126,10 @@ def main() -> int:
 
     console.print(BANNER.format(version=__version__))
     console.print()
+
+    # First-launch welcome — show a one-time native dialog explaining what
+    # macOS permission prompts to expect, so users aren't blindsided.
+    _maybe_show_first_launch_welcome()
 
     # Step 1: File picker (menu bar gets installed inside pick_files after NSApp init)
     console.print("Opening file picker...")

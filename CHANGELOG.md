@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-04-07
+
+### Fixed
+- **macOS 15 (Sequoia) drag-and-drop freeze.** Apple has been
+  deprecating `NSFilenamesPboardType` and on macOS 15 Finder no
+  longer reliably populates it for file drags — it sends only the
+  modern `public.file-url` UTI. Our drop handler was registered for
+  the legacy type only, so the dragging session never resolved and
+  the picker froze (UI completely unresponsive) the first time a
+  user tried to drag from Finder. Fix: register for BOTH the legacy
+  `NSFilenamesPboardType` AND `public.file-url`, and extract the
+  file path from whichever the system actually populates.
+
+### Added
+- **First-launch welcome dialog.** A native NSAlert appears the very
+  first time the app runs (gated on a marker file in
+  `~/Library/Application Support/Chads DaVinci Script/.first_launch_seen`)
+  warning the user about:
+    1. The macOS Apple Events permission prompt that will appear
+       on the first build (and how to respond to it)
+    2. The need to launch DaVinci Resolve before clicking OK
+    3. How drag-and-drop works (drag onto a path field; outline
+       turns blue when ready)
+    4. How auto-saved settings + Reset Defaults work
+  Dismissed once per machine; never shown again on subsequent runs.
+- Success / failure NSAlerts now explicitly call
+  `activateIgnoringOtherApps_` so they come to the foreground
+  instead of hiding behind Resolve or Terminal.
+
 ## [0.2.2] — 2026-04-07
 
 ### Added
@@ -95,7 +124,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.3
 [0.2.2]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.2
 [0.2.1]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.1
 [0.2.0]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.0

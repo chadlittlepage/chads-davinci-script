@@ -175,6 +175,35 @@ def _get_resolve_databases() -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
+# Modern UTI for file URLs (macOS 10.6+, preferred on macOS 14+).
+# NSFilenamesPboardType is deprecated and Finder on macOS 15 sometimes
+# only sends public.file-url, so we register for BOTH.
+_FILE_URL_UTI = "public.file-url"
+
+
+def _file_path_from_pasteboard(pasteboard) -> str | None:
+    """Try every supported pasteboard type and return the first file path
+    we can extract. Handles both legacy NSFilenamesPboardType (list of
+    POSIX paths) and modern public.file-url (a file:// URL string per item)."""
+    types = pasteboard.types() or []
+    # Legacy: NSFilenamesPboardType — Apple has been gradually killing this.
+    if NSFilenamesPboardType in types:
+        files = pasteboard.propertyListForType_(NSFilenamesPboardType)
+        if files and len(files) > 0:
+            return str(files[0])
+    # Modern: public.file-url — what Finder on macOS 15 actually sends.
+    if _FILE_URL_UTI in types:
+        url_str = pasteboard.stringForType_(_FILE_URL_UTI)
+        if url_str:
+            from AppKit import NSURL
+            url = NSURL.URLWithString_(url_str)
+            if url is not None:
+                p = url.path()
+                if p:
+                    return str(p)
+    return None
+
+
 class DropTextField(NSTextField):
     """NSTextField that accepts file drops from Finder."""
 
@@ -183,7 +212,11 @@ class DropTextField(NSTextField):
         if self is not None:
             self._drop_target = None
             self._drop_action = None
-            self.registerForDraggedTypes_([NSFilenamesPboardType])
+            # Register for BOTH legacy and modern pasteboard types.
+            # macOS 15's Finder no longer reliably populates the legacy
+            # NSFilenamesPboardType — without public.file-url here, the
+            # drag session never resolves and the main thread can hang.
+            self.registerForDraggedTypes_([NSFilenamesPboardType, _FILE_URL_UTI])
         return self
 
     def setDropTarget_action_(self, target, action):
@@ -210,7 +243,8 @@ class DropTextField(NSTextField):
     @objc.signature(b"Q@:@")
     def draggingEntered_(self, sender):
         pasteboard = sender.draggingPasteboard()
-        if NSFilenamesPboardType in pasteboard.types():
+        types = pasteboard.types() or []
+        if NSFilenamesPboardType in types or _FILE_URL_UTI in types:
             self._set_drag_highlight(True)
             return NSDragOperationCopy
         return NSDragOperationNone
@@ -225,14 +259,16 @@ class DropTextField(NSTextField):
     @objc.signature(b"B@:@")
     def performDragOperation_(self, sender):
         self._set_drag_highlight(False)
-        pasteboard = sender.draggingPasteboard()
-        files = pasteboard.propertyListForType_(NSFilenamesPboardType)
-        if files and len(files) > 0:
-            self.setStringValue_(str(files[0]))
-            if self._drop_target and self._drop_action:
-                self._drop_target.performSelector_withObject_(self._drop_action, self)
-            return True
-        return False
+        try:
+            path = _file_path_from_pasteboard(sender.draggingPasteboard())
+        except Exception:
+            path = None
+        if not path:
+            return False
+        self.setStringValue_(path)
+        if self._drop_target and self._drop_action:
+            self._drop_target.performSelector_withObject_(self._drop_action, self)
+        return True
 
 
 # ---------------------------------------------------------------------------
