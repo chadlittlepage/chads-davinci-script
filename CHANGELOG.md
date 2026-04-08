@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.24] — 2026-04-08
+
+### Fixed
+
+- Auto-launch of DaVinci Resolve no longer steals focus from the file
+  picker. Switched `open -a` to `open -g -a` so Resolve boots in the
+  background while our window stays frontmost.
+
 ## [0.2.23] — 2026-04-08
 
 ### Fixed

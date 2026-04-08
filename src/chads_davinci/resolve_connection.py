@@ -50,7 +50,9 @@ def _launch_resolve_and_wait(timeout_sec: int = 90) -> bool:
     """
     console.print("[yellow]DaVinci Resolve is not running — launching it...[/yellow]")
     try:
-        subprocess.Popen(["open", "-a", "DaVinci Resolve"])
+        # -g launches in the background so Resolve doesn't steal focus
+        # from our app's progress/connect window while it boots.
+        subprocess.Popen(["open", "-g", "-a", "DaVinci Resolve"])
     except Exception as e:
         console.print(f"[red]Failed to launch DaVinci Resolve: {e}[/red]")
         return False
