@@ -49,6 +49,7 @@ OPTIONS = {
     "packages": [
         "chads_davinci",
         "rich",
+        "Quartz",
     ],
     "includes": [
         "chads_davinci.about_window",
@@ -67,8 +68,6 @@ OPTIONS = {
         "chads_davinci.resolve_connection",
         "chads_davinci.settings_io",
         "chads_davinci.ui_automation",
-        # Quartz needed for typed CGColor creation (avoids PyObjC bridge warnings)
-        "Quartz",
     ],
     "excludes": [
         "tkinter",
