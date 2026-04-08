@@ -43,6 +43,21 @@ def _is_resolve_running() -> bool:
         return False
 
 
+def _reactivate_self() -> None:
+    """Bring our own app back to the foreground.
+
+    Resolve activates itself aggressively on launch even with `open -g`,
+    so we periodically re-foreground ourselves while we wait for it.
+    """
+    try:
+        from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
+        NSRunningApplication.currentApplication().activateWithOptions_(
+            NSApplicationActivateIgnoringOtherApps
+        )
+    except Exception:
+        pass
+
+
 def _launch_resolve_and_wait(timeout_sec: int = 90) -> bool:
     """Launch DaVinci Resolve.app and wait until its scripting API responds.
 
@@ -60,10 +75,13 @@ def _launch_resolve_and_wait(timeout_sec: int = 90) -> bool:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         time.sleep(2)
+        # Resolve grabs focus on launch despite -g; pull it back every poll.
+        _reactivate_self()
         try:
             import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
             if dvr.scriptapp("Resolve") is not None:
                 console.print("[green]DaVinci Resolve is ready.[/green]")
+                _reactivate_self()
                 return True
         except Exception:
             pass

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.25] — 2026-04-08
+
+### Fixed
+
+- Resolve was stealing focus on launch even with `open -g`. The wait
+  loop now actively re-foregrounds our own app every 2 seconds via
+  `NSRunningApplication.currentApplication().activateWithOptions_`.
+
 ## [0.2.24] — 2026-04-08
 
 ### Fixed
