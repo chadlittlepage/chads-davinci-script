@@ -95,10 +95,33 @@ For each row you can:
   • Edit the Track Name field to customize the name shown in the timeline
 
 
-DROP A FOLDER → AUTO-ROUTE FILES (v0.2.19)
-Instead of dragging 6 files into 6 different rows, you can drop ONE
-folder onto any path field. The picker scans the folder for video
-files and routes each one to the matching row by filename pattern.
+DROP A FOLDER OR MULTIPLE FILES → AUTO-ROUTE (v0.2.19+)
+Two equivalent ways to fill the whole picker in one drag:
+
+  • Drop a FOLDER onto any path field. The picker scans the folder
+    for video files and routes each one to the matching row by
+    filename pattern.
+
+  • Multi-select files in Finder (⌘-click or shift-click) and drag
+    the SELECTION onto any path field. The picker routes each
+    selected file to its matching row the same way.
+
+Either way, the row that received the drop is irrelevant — each
+file goes to whichever row matches its filename pattern.
+
+Filename matching is SEPARATOR-INSENSITIVE: the matcher first
+strips every non-alphanumeric character (underscores, dashes,
+spaces, dots) and lowercases the rest, so all of these route the
+same way:
+
+  DVP1.0_HW2_300nit_v002.mov
+  DVP1.0_HW_2_300_nit_v002.mov
+  DVP1.0-HW2-300nit-v002.mov
+  DVP1.0 HW2 300 nit v002.mov
+  dvp1.0_hw2_300nit_v002.mov
+
+All four route to HW2 300 nit. The matcher does NOT care how the
+keywords are separated — it only cares which keywords appear.
 
 Recognized keywords (case-insensitive substring match against the
 filename):

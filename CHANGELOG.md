@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.20] — 2026-04-08
+
+### Added — separator-insensitive filename matching
+
+The auto-router now strips ALL non-alphanumeric characters
+(underscores, dashes, spaces, dots) before matching keywords
+against the filename. All four of these route to the same row:
+
+  DVP1.0_HW2_300nit_v002.mov         → HW2 300 nit
+  DVP1.0_HW_2_300_nit_v002.mov       → HW2 300 nit
+  DVP1.0-HW2-300nit-v002.mov         → HW2 300 nit
+  DVP1.0 HW2 300 nit v002.mov        → HW2 300 nit
+
+The matcher does NOT care how the keywords are separated — it
+only cares which keywords appear. New helper:
+`models._normalize_for_matching(s)` lowercases and filters down to
+`[a-z0-9]+`. Verified against 11 test cases covering every
+separator style.
+
+### Fixed — multi-file drag now routes by filename pattern
+
+In v0.2.19 the folder-drop auto-router worked, but if the user
+multi-selected files in Finder (`⌘`-click or `shift`-click) and
+dragged the SELECTION onto a picker row, **only the first file was
+extracted** and the rest were silently dropped. The
+`_file_path_from_pasteboard` helper was hard-coded to return only
+`urls[0]`.
+
+Two changes:
+
+1. **`_file_path_from_pasteboard` → `_file_paths_from_pasteboard`**:
+   refactored to return a `list[str]` of every file URL on the
+   pasteboard. Iterates the full `readObjectsForClasses`
+   `NSArray`, the full `pasteboardItems` collection, and the full
+   `NSFilenamesPboardType` array. Same fallback chain, same error
+   logging — just plural instead of singular.
+
+2. **`DropTextField.performDragOperation_`** now checks `len(paths)`:
+   - **>1 paths** → calls `routeMultipleFiles_(paths)` on the
+     controller, which routes each file to its matching row by
+     filename pattern (same logic as the folder router)
+   - **1 path that is a directory** → existing folder-drop path
+   - **1 path that is a file** → existing single-file behavior
+
+3. **`FilePickerController.routeMultipleFiles_`** is the new entry
+   point for multi-file drops. It sorts the paths alphabetically
+   for deterministic "first match wins" behavior, then delegates
+   to `_route_paths()`.
+
+4. **Extracted `_route_paths()` shared helper** so
+   `routeDroppedFolder_` and `routeMultipleFiles_` use the same
+   routing + status logic. Single source of truth.
+
+### UI / docs
+
+- **In-app manual**: renamed "DROP A FOLDER → AUTO-ROUTE" section
+  to "DROP A FOLDER OR MULTIPLE FILES → AUTO-ROUTE" and explains
+  both modes side-by-side. Same pattern table covers both.
+
 ## [0.2.19] — 2026-04-08
 
 ### Added — three real workflow features
@@ -830,7 +889,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.19...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.20...HEAD
+[0.2.20]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.20
 [0.2.19]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.19
 [0.2.18]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.18
 [0.2.17]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.17

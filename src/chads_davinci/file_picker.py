@@ -189,25 +189,38 @@ def _get_resolve_databases() -> list[dict[str, str]]:
 _FILE_URL_UTI = "public.file-url"
 
 
-def _file_path_from_pasteboard(pasteboard) -> str | None:
-    """Extract a file path from a drag pasteboard. Tries the canonical
-    modern NSURL API first, falls back to per-item parsing of
-    `public.file-url`, then to the legacy `NSFilenamesPboardType`.
-    Only logs on errors and on total failure — never on the happy path.
+def _file_paths_from_pasteboard(pasteboard) -> list[str]:
+    """Extract ALL file paths from a drag pasteboard.
+
+    Returns a list (possibly empty) of POSIX path strings. The list
+    is in pasteboard order (which is usually alphabetical when the
+    user multi-selects in Finder).
+
+    Tries the canonical modern NSURL API first, falls back to
+    per-item parsing of `public.file-url`, then to the legacy
+    `NSFilenamesPboardType`. Only logs on errors and on total
+    failure — never on the happy path.
     """
     from AppKit import NSURL
 
+    paths: list[str] = []
+
     # Method 1: NSPasteboard.readObjectsForClasses:options: (modern, fastest)
+    # This returns an NSArray of NSURL objects — one per dragged item.
     try:
         urls = pasteboard.readObjectsForClasses_options_([NSURL], None)
-        if urls and len(urls) > 0:
-            url = urls[0]
-            if url is not None and url.isFileURL():
+        if urls:
+            for url in urls:
+                if url is None or not url.isFileURL():
+                    continue
                 p = url.path()
                 if p:
-                    return str(p)
+                    paths.append(str(p))
     except Exception as e:
         _module_console.print(f"[yellow]Drag drop method 1 (NSURL) raised: {e}[/yellow]")
+
+    if paths:
+        return paths
 
     # Method 2: per-item public.file-url
     try:
@@ -219,30 +232,35 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
-                    return str(p)
+                    paths.append(str(p))
     except Exception as e:
         _module_console.print(
             f"[yellow]Drag drop method 2 (pasteboardItems) raised: {e}[/yellow]"
         )
 
-    # Method 3: legacy NSFilenamesPboardType
+    if paths:
+        return paths
+
+    # Method 3: legacy NSFilenamesPboardType (returns an NSArray of strings)
     types = list(pasteboard.types() or [])
     if NSFilenamesPboardType in types:
         try:
             files = pasteboard.propertyListForType_(NSFilenamesPboardType)
-            if files and len(files) > 0:
-                return str(files[0])
+            if files:
+                for f in files:
+                    if f:
+                        paths.append(str(f))
         except Exception as e:
             _module_console.print(
                 f"[yellow]Drag drop method 3 (NSFilenamesPboardType) raised: {e}[/yellow]"
             )
 
-    # Total failure — log for diagnosis.
-    _module_console.print(
-        f"[yellow]Drag drop: could not extract file path. "
-        f"Available pasteboard types: {types}[/yellow]"
-    )
-    return None
+    if not paths:
+        _module_console.print(
+            f"[yellow]Drag drop: could not extract any file paths. "
+            f"Available pasteboard types: {types}[/yellow]"
+        )
+    return paths
 
 
 class DropTextField(NSTextField):
@@ -330,12 +348,24 @@ class DropTextField(NSTextField):
     def performDragOperation_(self, sender):
         self._set_drag_highlight(False)
         try:
-            path = _file_path_from_pasteboard(sender.draggingPasteboard())
+            paths = _file_paths_from_pasteboard(sender.draggingPasteboard())
         except Exception as e:
             _module_console.print(f"[yellow]Drag drop extraction failed: {e}[/yellow]")
             return False
-        if not path:
+        if not paths:
             return False
+
+        # Multi-file drop: route every file by filename pattern. The
+        # row that received the drop is irrelevant — each file goes
+        # to whichever row matches its name.
+        if len(paths) > 1:
+            if self._drop_target and hasattr(
+                self._drop_target, "routeMultipleFiles_"
+            ):
+                self._drop_target.routeMultipleFiles_(paths)
+            return True
+
+        path = paths[0]
 
         # Folder drop: hand the folder to the controller's auto-router
         # so it can scan the contents and fill all matching rows.
@@ -452,35 +482,36 @@ class FilePickerController(NSObject):
                     self.assignments[role] = None
                 break
 
-    def routeDroppedFolder_(self, folder_path):
-        """Auto-fill picker rows by scanning a dropped folder for video
-        files and matching each one to a track role by filename pattern.
+    def _route_paths(self, candidates: list[Path], source_label: str) -> None:
+        """Shared routing logic for routeDroppedFolder_ and
+        routeMultipleFiles_. Given a list of candidate file Paths,
+        route each one to a TrackRole by filename pattern and update
+        the matching row in the picker.
+
+        Rules:
+        - Files in `candidates` are processed in the order given (callers
+          should pre-sort alphabetically for deterministic results).
+        - Hidden files (`.foo`) and directories are skipped.
+        - Files with unsupported extensions are skipped.
+        - If multiple files match the same role, the FIRST one wins.
+        - Files that don't match any role are silently ignored.
 
         See `models.route_filename_to_role` for the matching rules.
-        Multiple files matching the same role: the first one wins (alpha
-        order). Files that don't match any role are ignored.
         """
         from chads_davinci.models import (
             ALL_SUPPORTED_EXTENSIONS,
             route_filename_to_role,
         )
 
-        folder = Path(str(folder_path))
-        if not folder.is_dir():
-            return
-
-        # Walk the folder (one level deep) and route each candidate file
         scanned = 0
         applied: list[tuple[TrackRole, Path]] = []
         seen_roles: set[TrackRole] = set()
-        try:
-            entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
-        except OSError as e:
-            self._set_status(f"Could not read folder: {e}")
-            return
 
-        for entry in entries:
-            if entry.is_dir() or entry.name.startswith("."):
+        for entry in candidates:
+            try:
+                if entry.is_dir() or entry.name.startswith("."):
+                    continue
+            except OSError:
                 continue
             if entry.suffix.lower() not in ALL_SUPPORTED_EXTENSIONS:
                 continue
@@ -497,14 +528,39 @@ class FilePickerController(NSObject):
             summary = ", ".join(role.value for role, _ in applied)
             self._set_status_ok(
                 f"Auto-routed {len(applied)} of {scanned} file(s) "
-                f"from {folder.name}: {summary}"
+                f"from {source_label}: {summary}"
             )
         else:
             self._set_status(
-                f"No files in {folder.name} matched a track pattern. "
-                f"Drop individual files instead, or rename to include "
+                f"No files from {source_label} matched a track pattern. "
+                f"Drop individual files instead, or rename them to include "
                 f"keywords like 'HW2', 'L1SHW', '300', '795', '1500', or 'HDMI'."
             )
+
+    def routeDroppedFolder_(self, folder_path):
+        """Auto-fill picker rows by scanning a dropped folder for video
+        files and matching each one to a track role by filename pattern.
+        Delegates to _route_paths for the actual routing."""
+        folder = Path(str(folder_path))
+        if not folder.is_dir():
+            return
+        try:
+            entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+        except OSError as e:
+            self._set_status(f"Could not read folder: {e}")
+            return
+        self._route_paths(entries, folder.name)
+
+    def routeMultipleFiles_(self, paths):
+        """Auto-fill picker rows when the user drops MULTIPLE files at
+        once (multi-select in Finder, then drag the selection onto the
+        picker). Each file is routed to its matching row by filename
+        pattern. Delegates to _route_paths for the actual routing."""
+        candidates = sorted(
+            [Path(str(p)) for p in paths],
+            key=lambda p: p.name.lower(),
+        )
+        self._route_paths(candidates, f"{len(candidates)} dropped file(s)")
 
     def connectClicked_(self, sender):
         """Connect to Resolve and populate database list."""

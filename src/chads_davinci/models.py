@@ -243,15 +243,40 @@ def is_image_sequence_format(file_path: Path) -> bool:
     return file_path.suffix.lower() in IMAGE_SEQUENCE_EXTENSIONS
 
 
+def _normalize_for_matching(s: str) -> str:
+    """Lowercase and strip every non-alphanumeric character so that
+    keyword matching works regardless of how the user separates words
+    in their filenames. Examples:
+
+      "DVP1.0_HW2_300nit_v002.mov"   → "dvp10hw2300nitv002mov"
+      "DVP1.0_HW_2_300_nit_v002.mov" → "dvp10hw2300nitv002mov"
+      "DVP1.0-HW2-300nit-v002.mov"   → "dvp10hw2300nitv002mov"
+      "DVP1.0 HW2 300nit v002.mov"   → "dvp10hw2300nitv002mov"
+
+    All four normalize to the same string, so "hw2" and "300nit"
+    both match cleanly via substring lookup regardless of which
+    separator the source naming convention used.
+    """
+    return "".join(ch for ch in s.lower() if ch.isalnum())
+
+
 def route_filename_to_role(filename: str) -> "TrackRole | None":
     """Best-effort match: figure out which TrackRole a filename looks
     like it belongs to, based on common naming patterns from real
     HDR-test workflows. Returns None if no clear match.
 
-    The matching is intentionally simple — case-insensitive substring
-    checks against the file's basename. Examples that match cleanly:
+    The filename is FIRST normalized via `_normalize_for_matching`
+    (lowercase + strip every non-alphanumeric character) before any
+    substring matching, so the keyword separators in the source
+    filename don't matter — `_`, `-`, ` `, `.`, etc. all collapse away.
 
-      DVP1.0_Plata_Reel_HW2_300nit_v002.mov          → HW2_300_NIT
+    Examples that all route to HW2_300_NIT:
+      DVP1.0_Plata_Reel_HW2_300nit_v002.mov
+      DVP1.0_HW_2_300_nit_v002.mov
+      DVP1.0-HW2-300nit-v002.mov
+      DVP1.0 HW2 300 nit v002.mov
+
+    Examples for the other roles:
       L15HW_Default_Plata_300_v002.mp4               → L1SHW_300
       DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      → HW2_795_STRETCH_1500
       L15HW_Default_Plata_HWL15_795_1500_v002.mp4    → L1SHW_795_STRETCH_1500
@@ -261,7 +286,7 @@ def route_filename_to_role(filename: str) -> "TrackRole | None":
     Note: HDMI is checked FIRST because L1SHW HDMI files often also
     contain "L1SHW", "HW2", or "L15HW" in the path.
     """
-    name = filename.lower()
+    name = _normalize_for_matching(filename)
 
     # HDMI is most specific — check first
     if "hdmi" in name:
