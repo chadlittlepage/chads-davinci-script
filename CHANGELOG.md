@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.23] — 2026-04-08
+
+### Fixed
+
+- **Connect to Resolve button** now also auto-launches DaVinci Resolve
+  if it isn't running (matches the build-time behavior added in v0.2.22).
+- **Playback frame rate UI automation** no longer aborts when Resolve's
+  Project Settings UI shifts. Replaced the brittle `click static text 22`
+  defocus with a `key code 48` (Tab) defocus and wrapped the text-field
+  set in a try block so transient UI index drift can't break it.
+
 ## [0.2.22] — 2026-04-08
 
 ### Added — auto-launch DaVinci Resolve

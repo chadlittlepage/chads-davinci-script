@@ -167,14 +167,26 @@ def _get_resolve_databases() -> list[dict[str, str]]:
 
     try:
         import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
-
-        resolve = dvr.scriptapp("Resolve")
-        if resolve is None:
-            return []
-        pm = resolve.GetProjectManager()
-        return pm.GetDatabaseList() or []
     except ImportError:
         return []
+
+    resolve = dvr.scriptapp("Resolve")
+    if resolve is None:
+        # Auto-launch Resolve and wait up to 90s for the scripting API
+        try:
+            from chads_davinci.resolve_connection import (
+                _is_resolve_running,
+                _launch_resolve_and_wait,
+            )
+            if not _is_resolve_running():
+                if _launch_resolve_and_wait():
+                    resolve = dvr.scriptapp("Resolve")
+        except Exception:
+            pass
+    if resolve is None:
+        return []
+    pm = resolve.GetProjectManager()
+    return pm.GetDatabaseList() or []
 
 
 # ---------------------------------------------------------------------------

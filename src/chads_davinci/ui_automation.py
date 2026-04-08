@@ -84,17 +84,25 @@ tell application "System Events"
 
         tell window "Project Settings"
             tell group 1
-                -- Direct value set on Playback frame rate (text field 3)
-                set value of text field 3 to "{frame_rate}"
-                delay 0.3
+                -- Direct value set on Playback frame rate (text field 3).
+                -- Wrapped in try so a UI shift on a text field index doesn't
+                -- abort before we reach the Save/Cancel safety net below.
+                try
+                    set value of text field 3 to "{frame_rate}"
+                end try
+                delay 0.2
 
-                -- Click into the field then click a label to defocus.
-                -- This makes Resolve register the change and enables Save.
-                click text field 3
+                -- Focus the field and defocus via Tab (UI-position-independent —
+                -- avoids depending on a specific static text index that shifts
+                -- between Resolve versions).
+                try
+                    click text field 3
+                end try
                 delay 0.1
-                click static text 22
-                delay 0.5
             end tell
+            -- Tab outside the group so the field commits.
+            key code 48
+            delay 0.5
 
             -- Click Save if it is enabled (i.e. Resolve detected a change),
             -- otherwise click Cancel. EITHER WAY, the dialog must close —
