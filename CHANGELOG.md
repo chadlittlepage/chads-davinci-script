@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.30] — 2026-04-08
+
+### Removed
+
+- **Screenshot from Export Console.** The screenshot was always
+  captured *after* the build, so it only ever showed the now-empty
+  picker — useless for diagnosis. The console log already contains
+  every status update, error, and traceback (global excepthook +
+  threading.excepthook), so the screenshot adds nothing. Removed
+  `capture_app_screenshot` from `diagnostics.py` and the temp-file
+  bookkeeping from `menu_bar.exportConsole_`.
+
 ## [0.2.29] — 2026-04-08
 
 ### Fixed

@@ -56,34 +56,27 @@ class MenuTarget(NSObject):
                     _show_dialog("Export Failed", str(e))
 
     def exportConsole_(self, sender):
-        """Capture a screenshot, then show a save panel that saves BOTH
-        the console log AND the screenshot side-by-side. The screenshot
-        is taken BEFORE the save panel opens so the panel itself isn't
-        in the captured image."""
+        """Show a save panel that exports the console log. The console
+        log already captures every status update, error, and traceback
+        (see console_log.py + diagnostics.install_global_exception_hook),
+        so a screenshot of the now-empty picker isn't useful — removed
+        in v0.2.30."""
         from datetime import datetime
         from pathlib import Path
 
         from AppKit import NSSavePanel
         from chads_davinci.console_log import get_log_path
-        from chads_davinci.diagnostics import capture_app_screenshot
 
         log_path = get_log_path()
         if not log_path.exists():
             _show_dialog("No Log Available", "No console log file found yet.")
             return
 
-        # Capture the screenshot to a temporary location BEFORE the save
-        # panel opens (so the panel itself doesn't end up in the image).
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        import tempfile
-        tmp_screenshot = Path(tempfile.gettempdir()) / f"cdv_screenshot_{timestamp}.png"
-        screenshot_taken = capture_app_screenshot(tmp_screenshot)
-
         panel = NSSavePanel.savePanel()
         panel.setNameFieldStringValue_(f"ChadsDaVinciScript_console_{timestamp}.log")
         panel.setMessage_(
-            "Save the console log file. A screenshot of the app will be "
-            "saved next to it. Send both to support if there's a crash."
+            "Save the console log file. Email it to support if there's a crash."
         )
         panel.setAllowedFileTypes_(["log", "txt"])
 
@@ -94,25 +87,12 @@ class MenuTarget(NSObject):
                 try:
                     import shutil
                     shutil.copy2(str(log_path), str(target))
-                    saved_files = [str(target)]
-                    # Move screenshot next to the log with a matching name
-                    if screenshot_taken and screenshot_taken.exists():
-                        screenshot_dest = target.with_suffix(".png")
-                        shutil.move(str(screenshot_taken), str(screenshot_dest))
-                        saved_files.append(str(screenshot_dest))
                     _show_dialog(
                         "Diagnostics Exported",
-                        "Saved:\n" + "\n".join(saved_files)
-                        + "\n\nEmail BOTH files to chad.littlepage@gmail.com",
+                        f"Saved: {target}\n\nEmail to chad.littlepage@gmail.com",
                     )
                 except Exception as e:
                     _show_dialog("Export Failed", str(e))
-        # If the user cancelled, clean up the temp screenshot
-        if screenshot_taken and screenshot_taken.exists():
-            try:
-                screenshot_taken.unlink()
-            except Exception:
-                pass
 
     def importSettings_(self, sender):
         """Show open panel and import settings from JSON."""

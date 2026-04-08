@@ -191,50 +191,6 @@ def log_tool_version(tool_name: str, tool_path: str | None) -> None:
         console.print(f"[dim]{tool_name}: version check failed: {e}[/dim]")
 
 
-def capture_app_screenshot(target_path: Path | str) -> Path | None:
-    """Capture a PNG screenshot of the app's main window to `target_path`.
-    Returns the saved Path on success, None on failure.
-
-    Tries window-specific capture first (no chrome from other apps); falls
-    back to full-screen capture if the main window can't be located.
-    """
-    target = Path(target_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        from AppKit import NSApp
-        win = None
-        try:
-            win = NSApp.mainWindow() or NSApp.keyWindow()
-        except Exception:
-            pass
-        if win is not None:
-            try:
-                window_number = int(win.windowNumber())
-                if window_number > 0:
-                    # -l = capture by window ID, -o = no shadow,
-                    # -x = no sound (-l implies it but be explicit)
-                    result = subprocess.run(
-                        ["screencapture", "-l", str(window_number), "-o", "-x", str(target)],
-                        capture_output=True, text=True,
-                        encoding="utf-8", errors="replace", timeout=10,
-                    )
-                    if result.returncode == 0 and target.exists() and target.stat().st_size > 0:
-                        return target
-            except Exception:
-                pass
-        # Fallback: full-screen capture (interactive screenshot would need user action)
-        result = subprocess.run(
-            ["screencapture", "-x", str(target)],
-            capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=10,
-        )
-        if result.returncode == 0 and target.exists() and target.stat().st_size > 0:
-            return target
-    except Exception as e:
-        console.print(f"[dim]Screenshot failed: {e}[/dim]")
-    return None
-
-
 # ----- Internals ------------------------------------------------------------
 
 
