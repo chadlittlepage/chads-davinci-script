@@ -161,6 +161,18 @@ def main() -> int:
     assignments = picker_result.assignments
     track_names = picker_result.track_names
 
+    # Show a floating progress window so the user has visible feedback
+    # during the long synchronous Resolve build steps and knows not to
+    # click in Resolve until everything completes.
+    progress = None
+    try:
+        from chads_davinci.progress_window import ProgressWindow
+        progress = ProgressWindow()
+        progress.show()
+        progress.set_status("Reviewing your file assignments…")
+    except Exception as e:
+        console.print(f"[dim]Progress window unavailable: {e}[/dim]")
+
     console.print()
     console.print("[bold]File Assignments:[/bold]")
     for a in assignments:
@@ -184,6 +196,9 @@ def main() -> int:
     metadata_results = []
     edl_marker_path = None
     if picker_result.use_mediainfo or picker_result.use_ffprobe:
+        if progress:
+            progress.set_status("Extracting metadata from media files…",
+                                f"MediaInfo + ffprobe on {len(assignments) - 1} files")
         console.print()
         console.print("[bold]Extracting metadata...[/bold]")
         meta_config = MetadataConfig(
@@ -195,6 +210,8 @@ def main() -> int:
         # Save report files if requested
         if picker_result.report_format != "None":
             from chads_davinci.metadata import save_report
+            if progress:
+                progress.set_status("Saving metadata reports…")
 
             saved = save_report(
                 metadata_results,
@@ -211,6 +228,8 @@ def main() -> int:
         # Export EDL markers if requested
         if "EDL" in picker_result.marker_option:
             from chads_davinci.metadata import export_edl_markers
+            if progress:
+                progress.set_status("Exporting EDL marker file…")
 
             edl_marker_path = export_edl_markers(
                 metadata_results,
@@ -235,6 +254,8 @@ def main() -> int:
         export_dir = picker_result.export_directory or str(REPORTS_DIR)
         subprocess.run(["open", export_dir], check=False)
 
+        if progress:
+            progress.close()
         _show_alert(
             "Metadata Export complete",
             f"Reports saved to:\n{export_dir}\n\n"
@@ -243,6 +264,9 @@ def main() -> int:
         return 0
 
     # Step 3: Connect to Resolve and set project settings
+    if progress:
+        progress.set_status("Connecting to DaVinci Resolve…",
+                            "Make sure Resolve is running")
     console.print()
     console.print("[bold]Connecting to DaVinci Resolve...[/bold]")
     ctx = connect(
@@ -256,6 +280,9 @@ def main() -> int:
         log_resolve_connection(ctx)
     except Exception:
         pass
+    if progress:
+        progress.set_status("Configuring Resolve project settings…",
+                            "Resolution, frame rate, color management, SDI monitoring")
     set_project_settings(
         ctx,
         frame_rate=picker_result.frame_rate,
@@ -339,22 +366,55 @@ def main() -> int:
         "extras": picker_result.extras or [],
     })
 
-    result = subprocess.run(
+    if progress:
+        progress.set_status("Building Resolve project…",
+                            "Creating bins, importing media, building timeline")
+
+    # Use Popen + polling so the progress window keeps animating during the
+    # subprocess wait. A blocking subprocess.run would freeze the spinner.
+    import time
+    proc = subprocess.Popen(
         [sys.executable, "-m", "chads_davinci.build_worker"],
-        input=build_args,
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=300,
         env={**os.environ, "PYTHONIOENCODING": "utf-8", "LANG": "en_US.UTF-8"},
     )
+    try:
+        proc.stdin.write(build_args)
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
 
-    if result.stdout:
-        console.print(result.stdout, end="")
-    if result.returncode != 0:
-        if result.stderr:
-            console.print(f"[red]{result.stderr}[/red]")
+    deadline = time.time() + 600  # 10 min hard cap
+    while proc.poll() is None:
+        if time.time() > deadline:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            break
+        # Pump the runloop so the progress window animates and stays responsive.
+        if progress:
+            progress.pump()
+        time.sleep(0.05)
+
+    stdout = proc.stdout.read() if proc.stdout else ""
+    stderr = proc.stderr.read() if proc.stderr else ""
+    returncode = proc.returncode if proc.returncode is not None else -1
+
+    if stdout:
+        console.print(stdout, end="")
+    if returncode != 0:
+        if stderr:
+            console.print(f"[red]{stderr}[/red]")
+        if progress:
+            progress.close()
         _show_alert(
             "Build failed",
             "The Resolve build subprocess returned an error.\n\n"
@@ -362,6 +422,13 @@ def main() -> int:
             critical=True,
         )
         return 1
+
+    if progress:
+        progress.set_status("Done!", "Switch to DaVinci Resolve to view the project")
+        # Brief flash of the success state before closing
+        time.sleep(0.4)
+        progress.pump()
+        progress.close()
 
     _show_alert(
         "Build complete",

@@ -15,7 +15,7 @@ chad.littlepage@gmail.com
 from setuptools import setup
 
 APP_NAME = "Chad's DaVinci Script"
-APP_VERSION = "0.2.11"
+APP_VERSION = "0.2.12"
 
 # Bundle ID — used for code signing, notarization, and AppleScript permissions
 BUNDLE_ID = "com.chadlittlepage.chadsdavinciscript"
@@ -63,6 +63,7 @@ OPTIONS = {
         "chads_davinci.metadata",
         "chads_davinci.models",
         "chads_davinci.paths",
+        "chads_davinci.progress_window",
         "chads_davinci.resolve_connection",
         "chads_davinci.settings_io",
         "chads_davinci.ui_automation",

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.12] — 2026-04-07
+
+### Added
+- **Floating progress window during the build pipeline.** After the
+  user clicks OK, a small `NSFloatingWindowLevel` window appears
+  with a spinning indicator + a status label that updates at every
+  phase of the build:
+    - "Reviewing your file assignments…"
+    - "Extracting metadata from media files…" (with sub-status
+      showing the file count)
+    - "Saving metadata reports…"
+    - "Exporting EDL marker file…"
+    - "Connecting to DaVinci Resolve…"
+    - "Configuring Resolve project settings…"
+    - "Building Resolve project…" (with sub-status "Creating bins,
+      importing media, building timeline")
+    - "Done!"
+
+  The window has its title-bar buttons hidden so the user can't
+  accidentally close it mid-build, and a footer line that says
+  "Please don't click in DaVinci Resolve until this completes." It's
+  positioned above all other windows including Resolve.
+
+  Implementation: new `src/chads_davinci/progress_window.py` module
+  with a `ProgressWindow` class. Each `set_status()` call pumps the
+  Cocoa run loop briefly via
+  `NSRunLoop.runMode_beforeDate_(NSDefaultRunLoopMode, ...)`
+  so the window actually repaints during synchronous Python work.
+
+- **`build_main` → `build_worker` subprocess now uses Popen + polling
+  instead of `subprocess.run`.** The blocking `subprocess.run` call
+  would freeze the main thread for the entire build (~30 s to several
+  minutes), preventing the progress spinner from animating. The new
+  implementation calls `Popen`, then polls `proc.poll()` in a loop
+  while pumping the run loop every 50 ms via `progress.pump()`. The
+  spinner stays alive and the status label stays responsive throughout.
+
 ## [0.2.11] — 2026-04-07
 
 ### Fixed (the v0.2.1 UTF-8 bug, second movement)
@@ -390,7 +427,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.11...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.12...HEAD
+[0.2.12]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.12
 [0.2.11]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.11
 [0.2.10]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.10
 [0.2.9]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.9
