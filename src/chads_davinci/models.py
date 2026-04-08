@@ -243,6 +243,57 @@ def is_image_sequence_format(file_path: Path) -> bool:
     return file_path.suffix.lower() in IMAGE_SEQUENCE_EXTENSIONS
 
 
+def route_filename_to_role(filename: str) -> "TrackRole | None":
+    """Best-effort match: figure out which TrackRole a filename looks
+    like it belongs to, based on common naming patterns from real
+    HDR-test workflows. Returns None if no clear match.
+
+    The matching is intentionally simple — case-insensitive substring
+    checks against the file's basename. Examples that match cleanly:
+
+      DVP1.0_Plata_Reel_HW2_300nit_v002.mov          → HW2_300_NIT
+      L15HW_Default_Plata_300_v002.mp4               → L1SHW_300
+      DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      → HW2_795_STRETCH_1500
+      L15HW_Default_Plata_HWL15_795_1500_v002.mp4    → L1SHW_795_STRETCH_1500
+      Reel_HDMI_Generic_TV.mov                       → L1SHW_HDMI
+      CHARTSONLY_Reel_2020_ProResXQ.mov              → REEL_SOURCE
+
+    Note: HDMI is checked FIRST because L1SHW HDMI files often also
+    contain "L1SHW", "HW2", or "L15HW" in the path.
+    """
+    name = filename.lower()
+
+    # HDMI is most specific — check first
+    if "hdmi" in name:
+        return TrackRole.L1SHW_HDMI
+
+    # The 795/1500/stretch family
+    is_stretch = ("795" in name) or ("1500" in name) or ("stretch" in name)
+
+    # Distinguish HW2 (the L15-HW2 hardware variants) from L1SHW
+    # (the L15 software / HWL15 variants)
+    is_hw2 = "hw2" in name
+    is_l1shw = ("l1shw" in name) or ("l15hw" in name) or ("hwl15" in name)
+
+    if is_hw2 and is_stretch:
+        return TrackRole.HW2_795_STRETCH_1500
+    if is_l1shw and is_stretch:
+        return TrackRole.L1SHW_795_STRETCH_1500
+
+    # The 300-nit family
+    is_300 = ("300" in name) or ("300nit" in name)
+    if is_hw2 and is_300:
+        return TrackRole.HW2_300_NIT
+    if is_l1shw and is_300:
+        return TrackRole.L1SHW_300
+
+    # REEL SOURCE — typically contains "reel" or "source"
+    if "source" in name or "reel" in name:
+        return TrackRole.REEL_SOURCE
+
+    return None
+
+
 def detect_image_sequence(file_path: Path) -> tuple[int, str] | None:
     """If `file_path` looks like a single frame from a numbered image
     sequence, return (frame_count, pattern_label) for the whole sequence.

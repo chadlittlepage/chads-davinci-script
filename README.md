@@ -15,6 +15,9 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 ### File picker (Cocoa)
 - Native drag-and-drop with blue-outline drop target highlight
+- **Drop a folder → auto-route files to the right rows by filename
+  pattern** (e.g. `*HW2*300nit*.mov` → HW2 300 nit row, `*HDMI*` →
+  L1SHW HDMI row, etc.). Six rows filled in one drag.
 - Drop a single frame from a DPX/TIFF/EXR/JPEG sequence — Resolve
   auto-imports the entire numbered sequence as one clip
 - 6 fixed quad-view track rows + dynamic **"+ Add Video Track"** for
@@ -25,6 +28,22 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 - Field width: 580px, ~80 chars visible at once before truncation
 - All form values **auto-save and restore** between launches
 - **Reset Defaults** button wipes everything back to factory state
+
+### Pre-flight validation
+- Before every build, the picker runs a quick MediaInfo sweep across
+  all assigned files and checks that:
+  - Every file actually exists on disk (catches unmounted volumes)
+  - **Frame rate** matches across all enabled rows
+  - **Resolution** matches
+  - **Color space** matches (the whole point of HDR-test workflows)
+  - **Bit depth** matches
+- If any check fails, a warning dialog lists every issue with two
+  buttons: Cancel (fix the assignments) or Continue Anyway (build
+  with the mismatch on purpose)
+- If pre-flight finds nothing wrong, no dialog appears — the build
+  just starts immediately
+- Takes ~1-2 seconds for 6 files; the MediaInfo result is cached so
+  the actual build doesn't re-extract
 
 ### Named presets
 - Save / recall / delete from a top-right dropdown

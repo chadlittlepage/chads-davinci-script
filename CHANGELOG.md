@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.19] — 2026-04-08
+
+### Added — three real workflow features
+
+#### 1. Drop a folder → auto-route files to picker rows
+
+Instead of dragging six files into six rows, drag a single folder
+onto any path field. The picker scans the folder for video files
+and routes each one to the matching row by filename pattern.
+
+Pattern matching is case-insensitive substring on the basename
+(see `models.route_filename_to_role`):
+
+  - `hdmi`                              → `L1SHW HDMI`
+  - `hw2` + (`795`/`1500`/`stretch`)    → `HW2 795 Stretch 1500`
+  - `l1shw`/`l15hw`/`hwl15` + same      → `L1SHW 795 Stretch 1500`
+  - `hw2` + (`300`/`300nit`)            → `HW2 300 nit`
+  - `l1shw`/`l15hw`/`hwl15` + same      → `L1SHW 300`
+  - `reel` or `source`                  → `REEL SOURCE`
+
+Files that don't match any pattern are silently ignored. If
+multiple files match the same row, the first one alphabetically
+wins. Single-file drops still go to the row that received the
+drop (no surprises).
+
+A green confirmation message at the bottom of the picker reports
+how many files were matched and which rows they filled. Implemented
+in `FilePickerController.routeDroppedFolder_` (called from
+`DropTextField.performDragOperation_` when the dropped item is a
+directory).
+
+#### 2. Pre-flight validation when you click OK
+
+Before starting the build, the picker now runs a quick MediaInfo
+sweep across every assigned file and checks for:
+
+  1. **File existence** — every assigned path actually exists on
+     disk (catches unmounted volumes like `/Volumes/media6` not
+     being connected)
+  2. **Frame rate consistency** across all enabled rows
+  3. **Resolution consistency**
+  4. **Color space consistency** — the whole point of HDR-test
+     workflows; a mismatch here is a real bug to catch
+  5. **Bit depth consistency**
+
+If any check fails, an `osascript display dialog` warning appears
+listing every issue. The user can:
+  - Click **Cancel** — keeps the picker open so they can fix the
+    assignments
+  - Click **Continue Anyway** — proceeds with the build (use when
+    the mismatch is intentional)
+
+If pre-flight finds no issues, no dialog appears — the build just
+starts immediately. Pre-flight takes ~1-2 seconds for 6 files.
+The MediaInfo result is cached so the actual build doesn't
+re-extract the same metadata.
+
+Implemented as `_run_preflight()` and `_show_preflight_dialog()`
+on `FilePickerController`, called from `okClicked_()` after the
+existing required-tracks / database / project-name validation.
+
+### Added — supporting helpers
+
+- **`models.route_filename_to_role(filename)`** — case-insensitive
+  pattern matcher returning a `TrackRole` or `None`. Documented
+  with examples in the docstring.
+- **`FilePickerController._set_status_ok()`** — green
+  confirmation message in the picker status bar (used by the
+  folder auto-router).
+- **`FilePickerController._set_status_info()`** — gray plain
+  status (used during pre-flight to show "Pre-flight check…").
+- **All new status messages are also printed via the rich console**
+  so they land in `console.log` per the v0.2.18 error-visibility
+  pass.
+
+### Manual updates
+- New section: **DROP A FOLDER → AUTO-ROUTE FILES** with the full
+  pattern table and example filenames
+- New section: **PRE-FLIGHT VALIDATION** explaining the checks,
+  the dialog, and when each is skipped
+
 ## [0.2.18] — 2026-04-07
 
 ### Added — error visibility + log rotation
@@ -749,7 +830,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.18...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.19
 [0.2.18]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.18
 [0.2.17]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.17
 [0.2.16]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.16

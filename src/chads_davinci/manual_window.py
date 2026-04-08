@@ -95,6 +95,71 @@ For each row you can:
   • Edit the Track Name field to customize the name shown in the timeline
 
 
+DROP A FOLDER → AUTO-ROUTE FILES (v0.2.19)
+Instead of dragging 6 files into 6 different rows, you can drop ONE
+folder onto any path field. The picker scans the folder for video
+files and routes each one to the matching row by filename pattern.
+
+Recognized keywords (case-insensitive substring match against the
+filename):
+
+  Filename contains            →   Routes to row
+  ─────────────────────────────────────────────────────
+  HDMI                         →   L1SHW HDMI
+  HW2 + (795 / 1500 / Stretch) →   HW2 795 Stretch 1500
+  L1SHW + (795/1500/Stretch)   →   L1SHW 795 Stretch 1500
+   (or L15HW / HWL15 + same)
+  HW2 + (300 / 300nit)         →   HW2 300 nit
+  L1SHW + (300 / 300nit)       →   L1SHW 300
+   (or L15HW / HWL15 + same)
+  Reel  or  Source             →   REEL SOURCE
+
+Examples that auto-route cleanly:
+
+  DVP1.0_Plata_Reel_HW2_300nit_v002.mov          →  HW2 300 nit
+  L15HW_Default_Plata_300_v002.mp4               →  L1SHW 300
+  DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      →  HW2 795 Stretch 1500
+  L15HW_Default_Plata_HWL15_795_1500_v002.mp4    →  L1SHW 795 Stretch 1500
+  Reel_HDMI_Generic_TV.mov                       →  L1SHW HDMI
+  CHARTSONLY_Reel_2020_ProResXQ.mov              →  REEL SOURCE
+
+Files that don't match any pattern are ignored. If multiple files
+in the folder match the same row, the first one alphabetically wins.
+A confirmation message at the bottom of the picker tells you how
+many files were matched and which rows they filled.
+
+If your naming convention doesn't include those keywords, drop
+individual files instead — the auto-router won't fight you.
+
+
+PRE-FLIGHT VALIDATION (v0.2.19)
+When you click OK, the picker runs a quick pre-flight check on every
+assigned file BEFORE starting the build:
+
+  1. Every file actually exists on disk (catches unmounted volumes
+     like /Volumes/media6 not being connected)
+  2. Frame rate matches across all enabled rows (the most common
+     gotcha — if HW2 is 23.976 and L1SHW is 24, the test is
+     meaningless)
+  3. Resolution matches across all rows
+  4. Color space matches (this is the WHOLE POINT of HDR-test
+     workflows; a mismatch is a real bug to catch)
+  5. Bit depth matches
+
+If any check fails, a warning dialog appears listing every issue
+with two buttons:
+  • Cancel — keeps the picker open so you can fix the assignments
+  • Continue Anyway — proceeds with the build (use this when the
+    mismatch is intentional)
+
+Pre-flight uses MediaInfo (already bundled) and takes about 1-2
+seconds for 6 files. The mediainfo result is cached so the build
+itself doesn't re-extract the same metadata.
+
+If pre-flight finds NO issues, you don't see a dialog at all — the
+build just starts immediately.
+
+
 + ADD VIDEO TRACK — EXTRA TRACKS
 Click "+ Add Video Track" (left side, below the file rows) to add an extra
 video track row. The picker grows downward automatically — no scrolling.

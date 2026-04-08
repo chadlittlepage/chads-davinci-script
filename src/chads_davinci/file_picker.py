@@ -8,6 +8,7 @@ chad.littlepage@gmail.com
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -335,6 +336,21 @@ class DropTextField(NSTextField):
             return False
         if not path:
             return False
+
+        # Folder drop: hand the folder to the controller's auto-router
+        # so it can scan the contents and fill all matching rows.
+        try:
+            if Path(path).is_dir():
+                if self._drop_target and hasattr(
+                    self._drop_target, "routeDroppedFolder_"
+                ):
+                    self._drop_target.routeDroppedFolder_(path)
+                return True
+        except Exception:
+            pass
+
+        # Single-file drop: existing behavior — fill the row that
+        # received the drop, no surprises.
         self.setStringValue_(path)
         if self._drop_target and self._drop_action:
             self._drop_target.performSelector_withObject_(self._drop_action, self)
@@ -435,6 +451,60 @@ class FilePickerController(NSObject):
                 else:
                     self.assignments[role] = None
                 break
+
+    def routeDroppedFolder_(self, folder_path):
+        """Auto-fill picker rows by scanning a dropped folder for video
+        files and matching each one to a track role by filename pattern.
+
+        See `models.route_filename_to_role` for the matching rules.
+        Multiple files matching the same role: the first one wins (alpha
+        order). Files that don't match any role are ignored.
+        """
+        from chads_davinci.models import (
+            ALL_SUPPORTED_EXTENSIONS,
+            route_filename_to_role,
+        )
+
+        folder = Path(str(folder_path))
+        if not folder.is_dir():
+            return
+
+        # Walk the folder (one level deep) and route each candidate file
+        scanned = 0
+        applied: list[tuple[TrackRole, Path]] = []
+        seen_roles: set[TrackRole] = set()
+        try:
+            entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+        except OSError as e:
+            self._set_status(f"Could not read folder: {e}")
+            return
+
+        for entry in entries:
+            if entry.is_dir() or entry.name.startswith("."):
+                continue
+            if entry.suffix.lower() not in ALL_SUPPORTED_EXTENSIONS:
+                continue
+            scanned += 1
+            role = route_filename_to_role(entry.name)
+            if role is None or role in seen_roles or role not in self.path_fields:
+                continue
+            seen_roles.add(role)
+            self.path_fields[role].setStringValue_(str(entry))
+            self.assignments[role] = entry
+            applied.append((role, entry))
+
+        if applied:
+            summary = ", ".join(role.value for role, _ in applied)
+            self._set_status_ok(
+                f"Auto-routed {len(applied)} of {scanned} file(s) "
+                f"from {folder.name}: {summary}"
+            )
+        else:
+            self._set_status(
+                f"No files in {folder.name} matched a track pattern. "
+                f"Drop individual files instead, or rename to include "
+                f"keywords like 'HW2', 'L1SHW', '300', '795', '1500', or 'HDMI'."
+            )
 
     def connectClicked_(self, sender):
         """Connect to Resolve and populate database list."""
@@ -598,6 +668,27 @@ class FilePickerController(NSObject):
         if not project_name:
             self._set_status("Project name is required")
             return
+
+        # Pre-flight: check that all assigned files exist and have
+        # consistent metadata (frame rate, resolution, color space,
+        # bit depth). If anything looks wrong, ask the user before
+        # spending 30+ seconds on a build that's probably going to be
+        # meaningless. Pre-flight is also captured in console.log.
+        self._set_status_info("Pre-flight check…")
+        try:
+            warnings = self._run_preflight()
+        except Exception as e:
+            _module_console.print(f"[yellow]Pre-flight raised: {e}[/yellow]")
+            warnings = []
+        if warnings:
+            self._set_status(
+                f"Pre-flight found {len(warnings)} possible issue(s) — see dialog"
+            )
+            if not self._show_preflight_dialog(warnings):
+                # User clicked Cancel — leave the picker open so they
+                # can fix the assignments.
+                self._set_status("Cancelled — fix the highlighted issues and try again")
+                return
 
         track_assignments, track_names = self._build_assignments(all_disabled=False)
 
@@ -1039,6 +1130,155 @@ class FilePickerController(NSObject):
         if self.status_label:
             self.status_label.setStringValue_(msg)
             self.status_label.setTextColor_(NSColor.systemRedColor())
+
+    def _set_status_ok(self, msg):
+        """Green confirmation message in the status bar (informational, not error)."""
+        _module_console.print(f"[green]Picker status: {msg}[/green]")
+        if self.status_label:
+            self.status_label.setStringValue_(msg)
+            self.status_label.setTextColor_(NSColor.systemGreenColor())
+
+    def _set_status_info(self, msg):
+        """Plain informational status (gray). Used during pre-flight."""
+        _module_console.print(f"[dim]Picker status: {msg}[/dim]")
+        if self.status_label:
+            self.status_label.setStringValue_(msg)
+            self.status_label.setTextColor_(NSColor.secondaryLabelColor())
+
+    # ----- Pre-flight validation ------------------------------------------
+
+    def _run_preflight(self) -> list[str]:
+        """Inspect the assigned files and return a list of warning strings.
+        Each warning is a one-line description of a likely setup error.
+        Empty list = all good.
+
+        Checks:
+          1. Every assigned file actually exists on disk
+          2. Frame rate matches across all enabled rows
+          3. Resolution matches
+          4. Color space matches
+          5. Bit depth matches
+
+        Mediainfo runs once per file (cached after first hit). Total
+        time is ~1-2 seconds for 6 files.
+        """
+        from chads_davinci.metadata import extract_mediainfo
+
+        warnings: list[str] = []
+
+        # 1. File existence — most common gotcha (unmounted volume)
+        missing = []
+        for role in SELECTABLE_TRACKS:
+            path = self.assignments.get(role)
+            if path is None:
+                continue
+            try:
+                exists = path.exists()
+            except OSError:
+                exists = False
+            if not exists:
+                missing.append((role, path))
+        if missing:
+            for role, path in missing:
+                warnings.append(
+                    f"⚠️ {role.value}: file does not exist on disk\n"
+                    f"   {path}\n"
+                    f"   (volume may be unmounted, or the file was moved/deleted)"
+                )
+            # No point checking metadata if files are missing
+            return warnings
+
+        # 2-5. Mediainfo sweep across all assigned files
+        metas: dict[TrackRole, object] = {}
+        for role in SELECTABLE_TRACKS:
+            path = self.assignments.get(role)
+            if path is None:
+                continue
+            try:
+                metas[role] = extract_mediainfo(path)
+            except Exception:
+                pass
+
+        if len(metas) < 2:
+            return warnings  # need at least 2 to compare
+
+        def _check_field(field_name: str, label: str) -> None:
+            values = {
+                role: getattr(m, field_name)
+                for role, m in metas.items()
+                if getattr(m, field_name)
+            }
+            unique = set(values.values())
+            if len(unique) > 1:
+                detail = "\n".join(
+                    f"   • {role.value:25}  {val}"
+                    for role, val in values.items()
+                )
+                warnings.append(
+                    f"⚠️ {label} mismatch across files:\n{detail}"
+                )
+
+        _check_field("frame_rate", "Frame rate")
+        _check_field("resolution", "Resolution")
+        _check_field("color_space", "Color space")
+
+        # Bit depth is an int, special-case it
+        depths = {
+            role: m.bit_depth for role, m in metas.items() if m.bit_depth
+        }
+        if len(set(depths.values())) > 1:
+            detail = "\n".join(
+                f"   • {role.value:25}  {bd} bit"
+                for role, bd in depths.items()
+            )
+            warnings.append(f"⚠️ Bit depth mismatch across files:\n{detail}")
+
+        return warnings
+
+    def _show_preflight_dialog(self, warnings: list[str]) -> bool:
+        """Show a dialog listing the pre-flight warnings.
+        Returns True if the user clicks Continue Anyway, False on Cancel."""
+        body = (
+            "Pre-flight check found possible setup issues:\n\n"
+            + "\n\n".join(warnings)
+            + "\n\nThese might be intentional, but most of the time they "
+            "indicate that the wrong file was assigned to a row, the "
+            "wrong project was selected for the source clip, or a "
+            "volume is unmounted.\n\nContinue with the build anyway?"
+        )
+
+        def _esc(s: str) -> str:
+            return (
+                s.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("\n", "\\r")
+            )
+
+        title = "Pre-flight check found possible issues"
+        script = (
+            f'display dialog "{_esc(body)}" '
+            f'with title "{_esc(title)}" '
+            f'buttons {{"Cancel", "Continue Anyway"}} '
+            f'default button "Cancel" '
+            f'cancel button "Cancel" '
+            f'with icon caution'
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=300,
+            )
+        except Exception as e:
+            _module_console.print(
+                f"[yellow]Pre-flight dialog failed: {e}[/yellow]"
+            )
+            return True  # don't block the user if the dialog itself broke
+
+        return result.returncode == 0 and "Continue Anyway" in (result.stdout or "")
 
 
 # ---------------------------------------------------------------------------
