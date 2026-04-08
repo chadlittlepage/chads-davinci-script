@@ -28,17 +28,20 @@ whichever recipe you need.
 Chads DaVinci Script/
 ├── src/chads_davinci/         ← all the Python source
 │   ├── __init__.py            ← __version__ lives here
-│   ├── about_window.py        ← About dialog
+│   ├── about_window.py        ← About dialog with carbon-nano BG
 │   ├── bin_editor.py          ← bin tree editor (NSOutlineView)
-│   ├── build_main.py          ← parent process entry point
+│   ├── build_main.py          ← parent process entry point + orchestrator
 │   ├── build_worker.py        ← subprocess for clean Resolve API state
-│   ├── console_log.py         ← tee stdout/stderr to a log file
-│   ├── file_picker.py         ← main Cocoa picker window (the big one)
+│   ├── console_log.py         ← tee stdout/stderr to console.log + auto-rotation
+│   ├── diagnostics.py         ← system probe + exception hook + screenshot capture
+│   ├── file_picker.py         ← main Cocoa picker window (the big one — 1547 lines)
 │   ├── manual_window.py       ← in-app help / manual
 │   ├── menu_bar.py            ← native macOS menu bar
 │   ├── metadata.py            ← MediaInfo + ffprobe + report writers
-│   ├── models.py              ← TrackRole enum, BIN_STRUCTURE, transforms
+│   ├── models.py              ← TrackRole enum, BIN_STRUCTURE, transforms,
+│   │                            SUPPORTED_VIDEO_EXTENSIONS, etc.
 │   ├── paths.py               ← APP_SUPPORT_DIR + legacy migration
+│   ├── progress_window.py     ← floating NSPanel build progress UI
 │   ├── resolve_connection.py  ← all DaVinci Resolve scripting API calls
 │   ├── settings_io.py         ← user settings + presets persistence
 │   └── ui_automation.py       ← AppleScript fallback for read-only Resolve settings
@@ -70,7 +73,7 @@ Chads DaVinci Script/
 ├── dmg_settings.py            ← dmgbuild config: window size, icon positions, BG
 ├── build_and_sign.sh          ← one-command local notarized build
 │
-├── README.md                  ← public-facing project overview
+├── README.md                  ← public-facing project overview + feature list
 ├── CHANGELOG.md               ← Keep-a-Changelog format release notes
 ├── LICENSE                    ← proprietary "All Rights Reserved"
 └── MAINTAINING.md             ← this file
@@ -315,6 +318,34 @@ rm -rf "$HOME/Library/Application Support/Chads DaVinci Script"
 (There's also a "Reset Defaults" button in the picker that does the
 equivalent without nuking the logs directory.)
 
+### Manually wipe just the console logs
+
+```bash
+rm "$HOME/Library/Application Support/Chads DaVinci Script/logs/"*.log*
+```
+
+The next session will create a fresh `console.log` automatically.
+
+### Tweak log rotation thresholds
+
+Edit the constants at the top of `src/chads_davinci/console_log.py`:
+
+```python
+LOG_MAX_AGE_DAYS = 30          # archive after this many days
+LOG_MAX_SIZE_BYTES = 10 * 1024 * 1024     # rotate after this many bytes
+LOG_TRUNCATE_TO_BYTES = 5 * 1024 * 1024   # keep this many bytes on size rotation
+```
+
+### Read the latest console log without opening the app
+
+```bash
+tail -200 "$HOME/Library/Application Support/Chads DaVinci Script/logs/console.log"
+```
+
+Look for the most recent `=== Session started ===` block. The
+system probe is right under it, then any errors / dialogs / build
+output for that session.
+
 ---
 
 ## Secrets and credentials reference
@@ -410,6 +441,168 @@ End users don't have Homebrew, ffmpeg, or mediainfo installed. The
 app bundles them inside `Contents/Resources/bin/` so it works
 out-of-the-box on a fresh Mac. They're statically linked and signed
 with the rest of the bundle.
+
+### How the diagnostic stack works (added v0.2.6)
+
+Three layers, all in `src/chads_davinci/diagnostics.py`:
+
+1. **`write_session_probe()`** runs once at the very start of
+   `build_main.main()` and writes a one-shot block to `console.log`:
+   macOS version, architecture, Python version, PyObjC version,
+   app version, locale, screen info, and the path/size/architecture
+   of every bundled binary. This is the first thing in every
+   exported log — support can see the user's environment in 5 seconds.
+
+2. **`install_global_exception_hook()`** sets `sys.excepthook` AND
+   `threading.excepthook` so any unhandled Python exception (main
+   thread or background thread) writes a full traceback to
+   `console.log` via the rich console. PyObjC's `NSException` is
+   wrapped as an `objc_error` Python exception, so it goes through
+   the same hook. Without this, py2app's bare "fatal error" dialog
+   would lose the traceback entirely.
+
+3. **`log_resolve_connection(ctx)`** runs immediately after
+   `connect()` succeeds in the parent process. Logs Resolve product,
+   version string, and database count.
+
+`metadata.py` also calls `log_tool_version()` the first time
+mediainfo and ffprobe are invoked, so the version line of each
+bundled binary lands in the log on first use.
+
+### How the floating progress panel beats Resolve's z-order (v0.2.13+)
+
+DaVinci Resolve is a Qt application. Qt's modal dialogs use a custom
+window-server level that bypasses AppKit's normal hierarchy entirely.
+After many false starts (`NSFloatingWindowLevel` (3), then
+`NSPopUpMenuWindowLevel` (101), neither of which beat Resolve's
+modals), the working solution is in `src/chads_davinci/progress_window.py`:
+
+- **`NSPanel`** instead of `NSWindow` (lighter weight, supports more
+  styles)
+- **`NSWindowStyleMaskNonactivatingPanel`** so clicks don't pull our
+  app to the foreground
+- **`setLevel_(NSScreenSaverWindowLevel)`** = 1000 (the highest
+  user-accessible window level on macOS short of system shielding)
+- **`setFloatingPanel_(True)`**
+- **`setBecomesKeyOnlyIfNeeded_(True)`** — never steals keyboard focus
+- **`setWorksWhenModal_(True)`** — the key flag, stays visible above
+  modal sheets/dialogs from other apps
+- **`setHidesOnDeactivate_(False)`** — doesn't disappear when our app
+  loses focus to Resolve
+- **`collectionBehavior` = `canJoinAllSpaces | stationary | fullScreenAuxiliary`**
+- **`orderFrontRegardless()`** instead of `makeKeyAndOrderFront_`
+
+The panel runs the Cocoa run loop briefly on every `set_status()`
+call (`NSRunLoop.runMode_beforeDate_(NSDefaultRunLoopMode, 0.02)`)
+so it actually repaints during synchronous Python work. The
+`build_main` → `build_worker` subprocess wait is a polling loop
+that calls `progress.pump()` every 50 ms instead of a blocking
+`subprocess.run`, so the spinner stays alive throughout.
+
+### How alerts are shown (v0.2.15+)
+
+`build_main._show_alert()` does NOT use `NSAlert`. NSAlert +
+`NSRunningApplication.activateWithOptions_` doesn't reliably win
+the z-order fight against Resolve on modern macOS — the system
+refuses to promote our process to foreground because we're
+"background" by the time the build subprocess returns.
+
+Instead, `_show_alert()` uses `osascript -e 'display dialog "..."'`.
+AppleScript's `display dialog` is shown by `osascript` itself via
+StandardAdditions (NOT via System Events), so:
+
+- It does NOT need Accessibility / TCC permission
+- It IS reliably brought to the front by macOS regardless of which
+  app is currently active
+- It respects system appearance and uses native icons
+
+The same goes for `menu_bar._show_dialog()`. Both fall back to
+`NSAlert` only if `osascript` itself fails for some reason.
+
+### How console.log auto-rotation works (v0.2.18)
+
+`src/chads_davinci/console_log.py` has `_rotate_log_if_needed()`
+which is called by `setup_logging()` at every session start, before
+the log is opened for append:
+
+- **Age cap** (30 days): if `console.log.mtime` is older than
+  `LOG_MAX_AGE_DAYS = 30`, the file is renamed to
+  `console.log.old` (overwriting any previous backup) and a fresh
+  `console.log` is started.
+- **Size cap** (10 MB): if `console.log.size` exceeds
+  `LOG_MAX_SIZE_BYTES = 10_485_760`, the file is tail-truncated to
+  the last `LOG_TRUNCATE_TO_BYTES = 5_242_880` bytes (5 MB) with a
+  `=== log truncated (rolling 5 MB cap) ===` marker prepended.
+- **All failures are silent.** Log rotation must NEVER block app
+  startup. If the rename or truncate fails, the function falls
+  through and `setup_logging()` proceeds with whatever is on disk.
+
+To tweak the thresholds, edit the constants at the top of
+`console_log.py`. To wipe the log manually:
+
+```bash
+rm "$HOME/Library/Application Support/Chads DaVinci Script/logs/"*.log*
+```
+
+### How `Help → Export Console Log…` works (v0.2.6+)
+
+`src/chads_davinci/menu_bar.py` `exportConsole_()`:
+
+1. Captures a screenshot of the picker window via
+   `screencapture -l <windowID>` (uses `NSApp.mainWindow().windowNumber()`).
+   Saved to a tmp file.
+2. Shows an `NSSavePanel` so the user picks where to save the .log.
+3. Copies `~/Library/Application Support/Chads DaVinci Script/logs/console.log`
+   to the chosen path.
+4. Moves the screenshot from the tmp file to a sibling `.png` next
+   to the chosen .log.
+5. Shows a confirmation dialog listing both saved file paths and
+   asking the user to email both to support.
+
+If the user cancels the save panel, the tmp screenshot is cleaned up.
+
+### How sandbox-friendly storage works (v0.2.0)
+
+All persistent state goes in
+`~/Library/Application Support/Chads DaVinci Script/`:
+
+- `user_settings.json` — picker form defaults
+- `bin_structure.json` — saved bin tree
+- `presets.json` — named presets
+- `.first_launch_seen` — marker; delete to see welcome dialog again
+- `reports/` — default location for metadata reports
+- `logs/console.log` — current session log
+- `logs/console.log.old` — previous archive (one backup)
+
+`src/chads_davinci/paths.py` provides `APP_SUPPORT_DIR` and a
+one-shot migration: if the legacy `~/.chads-davinci/` directory
+exists from a pre-v0.2.0 install, its contents are copied to the
+new location at first import (silent best-effort, never fails).
+
+This location is the only home-directory path an App Sandbox /
+Hardened Runtime app can write to without explicit entitlements.
+
+### How three-way ImportMedia fallback works (v0.2.10)
+
+Resolve's `MediaPool.ImportMedia([path])` has a quirk: it sometimes
+auto-detects filenames matching `<prefix>_<digits>-<digits>.<ext>`
+as the first frame of an image sequence and refuses to import the
+file as a standalone clip. We don't know exactly when this triggers
+and when it doesn't.
+
+`src/chads_davinci/resolve_connection.py` `_import_one_file()` tries
+three Resolve API paths in sequence:
+
+1. `media_pool.ImportMedia([file_str])` — primary (handles real
+   image sequences correctly)
+2. `media_storage.AddItemListToMediaPool(file_str)` — lower-level,
+   bypasses sequence detection
+3. `media_pool.ImportMedia([{"FilePath": file_str}])` — clip-info
+   dict form, forces single-file mode
+
+Each fallback is logged with which method actually succeeded so
+future tester reports show exactly which API path the file came
+in through.
 
 ---
 
