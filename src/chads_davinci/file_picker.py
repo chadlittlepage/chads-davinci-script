@@ -608,12 +608,27 @@ class FilePickerController(NSObject):
 
         # Temporarily elevate our window above Resolve's splash screen
         # (which is borderless and ignores normal app activation).
-        from AppKit import NSScreenSaverWindowLevel, NSNormalWindowLevel
+        from AppKit import (
+            NSScreenSaverWindowLevel,
+            NSNormalWindowLevel,
+            NSApp,
+            NSApplicationActivateIgnoringOtherApps,
+            NSDate,
+            NSRunLoop,
+        )
         win = self.window if hasattr(self, "window") else sender.window()
         prior_level = None
         try:
             prior_level = win.level()
             win.setLevel_(NSScreenSaverWindowLevel)
+            win.makeKeyAndOrderFront_(None)
+            NSApp.activateIgnoringOtherApps_(True)
+            win.display()
+            # Let Cocoa actually flush the elevation + repaint before we
+            # block on the connect call.
+            NSRunLoop.currentRunLoop().runUntilDate_(
+                NSDate.dateWithTimeIntervalSinceNow_(0.05)
+            )
         except Exception:
             pass
 

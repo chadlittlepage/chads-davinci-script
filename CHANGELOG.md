@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.27] — 2026-04-08
+
+### Fixed
+
+- The picker's middle was rendering as the Resolve splash because the
+  main thread was blocked synchronously in the connect call and Cocoa
+  couldn't repaint. The wait loop now pumps `NSRunLoop.runUntilDate_`
+  instead of `time.sleep`, and `connectClicked_` flushes the level
+  elevation + repaint before starting the wait.
+
 ## [0.2.26] — 2026-04-08
 
 ### Fixed
