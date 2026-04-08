@@ -38,9 +38,16 @@ BANNER = (
 def _show_alert(title: str, message: str, critical: bool = False) -> None:
     """Show a final native NSAlert before the process exits.
 
-    Without this, after the build subprocess returns the parent Cocoa app
-    has nothing left to do and silently exits, which feels to the user like
-    the app "just quit". This gives an explicit success / failure handoff.
+    Three layers of "make sure the user actually sees this":
+    1. Force-activate our app via NSRunningApplication's modern
+       activateWithOptions_ API. The legacy
+       NSApplication.activateIgnoringOtherApps_ frequently fails on
+       modern macOS when the calling process is no longer the
+       foreground app from the system's perspective.
+    2. Set the alert window's level to NSScreenSaverWindowLevel (1000)
+       BEFORE running the modal so it sits above DaVinci Resolve's Qt
+       windows and any modal dialogs.
+    3. Call orderFrontRegardless on the alert window before runModal.
     """
     try:
         from AppKit import (
@@ -48,18 +55,40 @@ def _show_alert(title: str, message: str, critical: bool = False) -> None:
             NSAlertStyleCritical,
             NSAlertStyleInformational,
             NSApplication,
+            NSApplicationActivateAllWindows,
+            NSApplicationActivateIgnoringOtherApps,
+            NSRunningApplication,
         )
-        # Make sure the app is in the foreground or the alert can sit
-        # behind another window and look like a frozen UI.
+
+        # Layer 1: modern activation API (works even when the legacy one fails)
         try:
-            NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            NSRunningApplication.currentApplication().activateWithOptions_(
+                NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
+            )
         except Exception:
-            pass
+            try:
+                NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+            except Exception:
+                pass
+
         alert = NSAlert.alloc().init()
         alert.setMessageText_(title)
         alert.setInformativeText_(message)
         alert.setAlertStyle_(NSAlertStyleCritical if critical else NSAlertStyleInformational)
         alert.addButtonWithTitle_("OK")
+
+        # Layer 2 + 3: bump the alert's window above Resolve and force it
+        # to the front before showing it modally.
+        try:
+            w = alert.window()
+            w.setLevel_(1000)  # NSScreenSaverWindowLevel
+            try:
+                w.orderFrontRegardless()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
         alert.runModal()
     except Exception:
         # Headless / no NSApp / something else weird — fall back to stdout.

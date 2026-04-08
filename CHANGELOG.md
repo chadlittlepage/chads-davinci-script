@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.14] — 2026-04-07
+
+### Fixed (the v0.2.12/0.2.13 saga continues)
+- **Progress panel STILL covered by Resolve's Project Settings modal**
+  even after v0.2.13 bumped the level to `NSPopUpMenuWindowLevel` (101).
+  Root cause: **DaVinci Resolve is a Qt application**. Qt's modal
+  dialogs use a custom window-server level that bypasses AppKit's
+  normal hierarchy entirely. AppKit's `NSPopUpMenuWindowLevel` isn't
+  high enough to beat them.
+
+  Fix: bump `progress_window.py` window level to
+  `NSScreenSaverWindowLevel` (1000). This is the highest user-accessible
+  level on macOS short of system shielding. Apple's own software-update
+  progress windows use the same level for the same reason.
+
+- **"Build complete" alert appears BEHIND DaVinci Resolve.** Modern
+  macOS frequently refuses `NSApplication.activateIgnoringOtherApps_`
+  when the calling process is no longer the foreground app from the
+  system's perspective — which is exactly the state we're in by the
+  time the build subprocess finishes and we try to show the alert.
+
+  Fix in `_show_alert()`:
+  1. Force-activate via the modern
+     `NSRunningApplication.currentApplication().activateWithOptions_(
+       NSApplicationActivateAllWindows |
+       NSApplicationActivateIgnoringOtherApps)`
+     API. The legacy `activateIgnoringOtherApps_` is kept as a fallback.
+  2. Bump the alert window's level to `NSScreenSaverWindowLevel` (1000)
+     BEFORE running the modal so it sits above Resolve and any of
+     Resolve's modal dialogs.
+  3. Call `orderFrontRegardless()` on the alert window before
+     `runModal()`.
+
+  Net result: the alert is unmissable. It appears above Resolve, above
+  any Qt modals Resolve might still have open, and the user actually
+  sees their build completed.
+
 ## [0.2.13] — 2026-04-07
 
 ### Fixed
@@ -465,7 +502,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.13...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.14...HEAD
+[0.2.14]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.14
 [0.2.13]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.13
 [0.2.12]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.12
 [0.2.11]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.11

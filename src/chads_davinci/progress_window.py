@@ -34,11 +34,13 @@ from Foundation import NSDate, NSDefaultRunLoopMode, NSRunLoop
 _RETAINED: list = []
 
 # NSWindow.level constants — kept here so we don't pull in extra symbols.
-# We pick a level above Resolve's Project Settings modal AND above the
-# normal app foreground level so the panel stays visible no matter what
-# Resolve does. NSPopUpMenuWindowLevel = 101 is high enough to beat any
-# normal app modal panel without going into screen-saver territory.
-_NS_POPUP_MENU_WINDOW_LEVEL = 101
+# DaVinci Resolve is a Qt application; its modal Project Settings dialog
+# bypasses AppKit's normal level hierarchy and ends up well above
+# NSPopUpMenuWindowLevel (101). We need to go higher than Qt's modal
+# levels — NSScreenSaverWindowLevel (1000) is the highest user-accessible
+# level on macOS short of system shielding. Apple's own software-update
+# progress windows use this level for the same reason.
+_NS_SCREEN_SAVER_WINDOW_LEVEL = 1000
 
 # NSWindowCollectionBehavior bits we need:
 #   1 << 0 = canJoinAllSpaces  — visible on every Space
@@ -79,9 +81,10 @@ class ProgressWindow:
         self.window.center()
 
         # ----- "Stay above EVERYTHING" configuration -----
-        # 1. High window level — beats Resolve's Project Settings modal
-        #    and Resolve's main window even when Resolve is the foreground app.
-        self.window.setLevel_(_NS_POPUP_MENU_WINDOW_LEVEL)
+        # 1. NSScreenSaverWindowLevel (1000) — required to stay above
+        #    DaVinci Resolve's Qt modal dialogs, which use a custom
+        #    window-server level that bypasses AppKit's normal hierarchy.
+        self.window.setLevel_(_NS_SCREEN_SAVER_WINDOW_LEVEL)
         # 2. Mark as a floating panel — keeps it above normal windows.
         try:
             self.window.setFloatingPanel_(True)
