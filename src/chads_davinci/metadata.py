@@ -103,11 +103,6 @@ def _run_cmd(cmd: list[str]) -> str | None:
     return None
 
 
-def _check_tool(name: str) -> bool:
-    """Check if a CLI tool is available (bundled or in PATH)."""
-    return _resolve_tool(name) is not None
-
-
 def extract_mediainfo(file_path: Path) -> FileMetadata:
     """Extract metadata using mediainfo JSON output."""
     meta = FileMetadata(file_path=file_path)
@@ -317,30 +312,18 @@ def merge_metadata(mi: FileMetadata, fp: FileMetadata) -> FileMetadata:
 
 def extract_metadata(file_path: Path, config: MetadataConfig) -> FileMetadata:
     """Extract metadata using configured tools."""
-    mi_meta = None
-    fp_meta = None
-
-    if config.use_mediainfo:
-        if _check_tool("mediainfo"):
-            mi_meta = extract_mediainfo(file_path)
-        else:
-            console.print("[yellow]mediainfo not found, skipping[/yellow]")
-
-    if config.use_ffprobe:
-        if _check_tool("ffprobe"):
-            fp_meta = extract_ffprobe(file_path)
-        else:
-            console.print("[yellow]ffprobe not found, skipping[/yellow]")
+    # extract_mediainfo / extract_ffprobe each call _resolve_tool() which is
+    # cached after the first hit, so we don't pay the lookup cost per file.
+    mi_meta = extract_mediainfo(file_path) if config.use_mediainfo else None
+    fp_meta = extract_ffprobe(file_path) if config.use_ffprobe else None
 
     if mi_meta and fp_meta:
         return merge_metadata(mi_meta, fp_meta)
-    elif mi_meta:
+    if mi_meta:
         return mi_meta
-    elif fp_meta:
+    if fp_meta:
         return fp_meta
-    else:
-        console.print("[red]No metadata tools available[/red]")
-        return FileMetadata(file_path=file_path)
+    return FileMetadata(file_path=file_path)
 
 
 def _metadata_rows() -> list[tuple[str, callable]]:

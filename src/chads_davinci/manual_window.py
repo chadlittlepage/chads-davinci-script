@@ -145,6 +145,51 @@ the form with the factory defaults. Use this if your saved state ever gets
 into a strange shape.
 
 
+FIRST-LAUNCH WELCOME
+The very first time you open the app on a new machine, a one-time
+welcome dialog appears explaining:
+  • The macOS Apple Events permission prompt that will appear on the
+    first build (click "Allow")
+  • That DaVinci Resolve must be running before you click OK to build
+  • How drag-and-drop works (drop onto the path field, watch for the
+    blue outline)
+  • That your settings auto-save and that "Reset Defaults" exists
+
+This dialog only appears once per machine. A marker file
+~/Library/Application Support/Chads DaVinci Script/.first_launch_seen
+remembers that you've seen it. Delete that file if you want it back
+(useful when teaching someone else the app).
+
+
+WHAT HAPPENS AFTER YOU CLICK OK
+Once you click OK on the picker, the picker window closes and a
+floating progress panel appears above DaVinci Resolve with a spinning
+indicator and a status label that updates at every phase:
+
+  Reviewing your file assignments…
+  Extracting metadata from media files…
+  Saving metadata reports…
+  Exporting EDL marker file…  (only if EDL markers are enabled)
+  Connecting to DaVinci Resolve…
+  Configuring Resolve project settings…
+  Setting playback frame rate via Resolve UI…  (only if needed; see below)
+  Building Resolve project…
+  Done!
+
+The panel is at NSScreenSaverWindowLevel — it stays above Resolve and
+above any modal dialogs Resolve might pop up. The footer reads "Please
+don't click in DaVinci Resolve until this completes." When the build
+finishes (or fails), the panel closes and a final dialog appears:
+  • "Build complete" with the project / folder / timeline name
+  • "Build failed" with a pointer to Help → Export Console Log…
+
+The "Setting playback frame rate via Resolve UI" step only happens
+when the Resolve API can't set the playback monitor's frame rate
+directly. When it does happen, the progress panel briefly hides
+itself so it doesn't get covered by Resolve's Project Settings
+dialog, then reappears for the rest of the build.
+
+
 RESOLVE PROJECT SETTINGS
 
 Resolve:        Click "Connect to Resolve" to fetch databases. Status shows
@@ -219,7 +264,13 @@ Container formats (single video file):
       .ari, .arx     ARRIRAW
       .crm, .rmf     Canon Cinema RAW Light
       .dng           CinemaDNG
-      .cine          Phantom Cine
+      .cine          Phantom Cine (Vision Research)
+      .nev           Nikon N-RAW (Z8 / Z9)
+  • 360° / VR:
+      .insv          Insta360 stitched 360 video
+  • Camera proxy sidecars (rarely the user's intent but accepted):
+      .lrv           Low-res proxy (GoPro, Insta360, etc.)
+      .lrf           Low-res proxy (DJI drones, Osmo)
 
 Codecs (carried inside the containers above):
   • Apple ProRes (422, 422 HQ, 422 LT, 422 Proxy, 4444, 4444 XQ)
@@ -231,22 +282,73 @@ Codecs (carried inside the containers above):
   • DV, DVCPRO, HDV
   • Cineform (GoPro)
   • Sony X-OCN
+  • ProRes RAW (Atomos)
 
 Image sequences (each frame is a single file; Resolve treats the
 sequence as ONE clip on the timeline):
-  • .dpx        Digital Picture Exchange (SMPTE 268M)
-  • .tif, .tiff TIFF
-  • .exr        OpenEXR
-  • .jpg, .jpeg JPEG
-  • .jp2, .j2k  JPEG 2000
-  • .png        PNG
-  • .tga        Targa
-  • .bmp        Bitmap
-  • .hdr        Radiance HDR
-  • .cin        Cineon
+  • .dpx         Digital Picture Exchange (SMPTE 268M)
+  • .tif, .tiff  TIFF
+  • .exr         OpenEXR
+  • .jpg, .jpeg  JPEG
+  • .jp2, .j2k   JPEG 2000
+  • .png         PNG
+  • .tga         Targa
+  • .bmp         Bitmap
+  • .hdr         Radiance HDR
+  • .cin         Cineon
+  • .insp        Insta360 360° photo
 
 Audio (rarely used in this picker but supported by Resolve):
   • .wav, .aif, .aiff, .flac, .mp3, .m4a, .aac
+
+
+CAMERA BRANDS & WHAT THEY OUTPUT
+Most cameras output to standard containers (.mp4 / .mov / .mxf).
+This list confirms which brands are supported and which proprietary
+extensions to look for.
+
+Cinema cameras
+  • Blackmagic Design — .braw, .mov (ProRes), .mxf (DNx)
+  • RED              — .r3d (RED REDCODE RAW)
+  • ARRI Alexa       — .ari, .arx (ARRIRAW), .mxf
+  • Sony Venice      — .mxf (XAVC-I, X-OCN)
+  • Canon Cinema     — .crm, .rmf (Cinema RAW Light), .mxf, .mov
+  • Phantom (Vision Research) — .cine
+
+Mirrorless / DSLRs
+  • Sony α series    — .mts, .m2ts (AVCHD), .mp4, .mxf (XAVC-S/I)
+  • Canon EOS R      — .mov, .mp4, .crm, .rmf
+  • Nikon Z8 / Z9    — .nev (N-RAW), .mp4 (H.265)
+  • Fujifilm X / GFX — .mov (F-Log)
+  • Panasonic Lumix  — .mov, .mts, .mp4
+  • Z CAM            — .mov (ProRes), .braw
+
+Action / 360° cameras
+  • GoPro            — .mp4 (HEVC + main), .lrv (proxy)
+  • Insta360         — .insv (stitched 360 video), .insp (360 photo),
+                       .mp4 (flat-rendered), .lrv (proxy)
+  • DJI Osmo         — .mp4, .lrf (proxy)
+
+Drones
+  • DJI Mavic / Inspire / Phantom — .mp4 (H.264/H.265), .lrf (proxy),
+                                    .dng (CinemaDNG on Inspire 2 with
+                                    license), .braw (some Ronin builds)
+
+Phones / consumer
+  • iPhone           — .mov (HEVC, ProRes on Pro models)
+  • Android          — .mp4 (H.264/H.265)
+
+External recorders
+  • Atomos Ninja / Shogun — .mov (ProRes RAW, ProRes, DNxHR)
+  • Blackmagic Video Assist — .mov (ProRes), .braw
+
+If your camera outputs a format that isn't in the list above but
+is in a standard container (.mov, .mp4, .mxf), it's almost
+certainly already supported because Resolve handles the codec
+inside. If it's in a proprietary container with an extension we
+haven't listed, drop it on the picker anyway — there's no
+extension filter, so if Resolve can read it, the picker will let
+you import it.
 
 
 WORKING WITH IMAGE SEQUENCES
@@ -342,9 +444,14 @@ Edit menu:
 
 Help menu:
   Chad's DaVinci Script Help — opens this manual
-  Export Console Log… — saves the session log file. If something crashes
-                        or behaves unexpectedly, use this to save the log
-                        and email it to chad.littlepage@gmail.com
+  Export Console Log… — saves TWO files side-by-side:
+                        1. The session log file (.log) — every console
+                           message, every error, every diagnostic from
+                           the current session
+                        2. A PNG screenshot of the picker window
+                           captured at the moment you clicked Export
+                           Email both to chad.littlepage@gmail.com if
+                           something crashes or behaves unexpectedly.
 
 
 PROJECT SETTINGS APPLIED AUTOMATICALLY
@@ -409,11 +516,22 @@ Use Reset Defaults to wipe everything back to factory state.
 
 FILE LOCATIONS
 ~/Library/Application Support/Chads DaVinci Script/
-    ├── user_settings.json     Picker form defaults (auto-saved on OK)
-    ├── bin_structure.json     Saved custom bin structure
-    ├── presets.json           Named presets dictionary
-    ├── reports/               Default location for metadata reports
-    └── logs/console.log       Session console log (rolling)
+    ├── user_settings.json       Picker form defaults (auto-saved on OK)
+    ├── bin_structure.json       Saved custom bin structure
+    ├── presets.json             Named presets dictionary
+    ├── .first_launch_seen       Marker — delete to see welcome again
+    ├── reports/                 Default location for metadata reports
+    └── logs/
+        ├── console.log          Current session log (auto-rotates)
+        └── console.log.old      Previous archive (one backup kept)
+
+Console log auto-rotation:
+  • At every launch, console.log is checked.
+  • If older than 30 days → archived to console.log.old (one backup
+    is kept; older backups are overwritten).
+  • If larger than 10 MB → tail-truncated to the last 5 MB so it
+    never grows unbounded.
+  • Rotation failures are silent — they can never block app startup.
 
 Note: legacy installs that wrote to ~/.chads-davinci/ are migrated to the
 new Application Support location automatically on first launch.
@@ -464,8 +582,23 @@ Saved settings won't load / "Reset Defaults" needed
   Reset Defaults to wipe and restart fresh.
 
 Crash or unexpected behavior
-  Use Help > Export Console Log… and email the log to
-  chad.littlepage@gmail.com along with a description of what happened.
+  Use Help > Export Console Log… and email BOTH files (the .log and
+  the .png screenshot) to chad.littlepage@gmail.com along with a
+  description of what you were doing.
+
+  The console log captures EVERYTHING worth seeing:
+    • A system probe at every session start (macOS version,
+      architecture, Python / PyObjC versions, app version, bundled
+      tool paths) so support can see your environment in one glance
+    • Every unhandled exception (including from background threads)
+      with full traceback
+    • Every error from osascript / mediainfo / ffprobe / Resolve API
+    • Every validation message shown by the picker
+    • Every dialog the app pops up (success and failure)
+    • The Resolve API connection probe (Resolve version, database
+      count) at the moment of connection
+  This is the single most useful artifact for diagnosing any
+  weirdness — please always include it in support emails.
 
 
 CREDITS

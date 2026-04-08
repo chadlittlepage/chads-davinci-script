@@ -27,6 +27,7 @@ from AppKit import (
     NSDragOperationNone,
     NSFilenamesPboardType,
     NSFont,
+    NSLineBreakByTruncatingHead,
     NSMakeRect,
     NSObject,
     NSOpenPanel,
@@ -46,6 +47,10 @@ from chads_davinci.models import (
     TrackAssignment,
     TrackRole,
 )
+
+# Single module-level Console reused by every hot-path call site
+# (drag-drop, _set_file, etc.) instead of instantiating per-event.
+_module_console = Console()
 
 FRAME_RATES = ["23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60"]
 
@@ -184,25 +189,14 @@ _FILE_URL_UTI = "public.file-url"
 
 
 def _file_path_from_pasteboard(pasteboard) -> str | None:
-    """Extract a file path from a drag pasteboard, handling every format
-    macOS Finder might use across versions.
-
-    The canonical modern API is `readObjectsForClasses:options:` with
-    `[NSURL]`, which returns parsed NSURL objects directly — this is more
-    reliable than string-based parsing of `public.file-url`, especially
-    on macOS 15 where Finder sometimes packs the URL data in ways that
-    `URLWithString:` parses incorrectly (returning only the volume root).
-
-    Logs every attempt + success to console.log so future tester reports
-    show exactly what Finder sent and which method extracted the path.
+    """Extract a file path from a drag pasteboard. Tries the canonical
+    modern NSURL API first, falls back to per-item parsing of
+    `public.file-url`, then to the legacy `NSFilenamesPboardType`.
+    Only logs on errors and on total failure — never on the happy path.
     """
     from AppKit import NSURL
-    console = Console()
 
-    types = list(pasteboard.types() or [])
-    console.print(f"[dim]Drag drop: pasteboard types = {types}[/dim]")
-
-    # Method 1 (preferred): NSPasteboard.readObjectsForClasses:options:
+    # Method 1: NSPasteboard.readObjectsForClasses:options: (modern, fastest)
     try:
         urls = pasteboard.readObjectsForClasses_options_([NSURL], None)
         if urls and len(urls) > 0:
@@ -210,56 +204,42 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
-                    s = str(p)
-                    console.print(
-                        f"[dim]Drag drop: method=readObjectsForClasses "
-                        f"len={len(s)} path={s}[/dim]"
-                    )
-                    return s
+                    return str(p)
     except Exception as e:
-        console.print(f"[dim]Drag drop: readObjectsForClasses failed: {e}[/dim]")
+        _module_console.print(f"[yellow]Drag drop method 1 (NSURL) raised: {e}[/yellow]")
 
-    # Method 2: iterate per-item, parsing each item's public.file-url
+    # Method 2: per-item public.file-url
     try:
-        items = pasteboard.pasteboardItems() or []
-        console.print(f"[dim]Drag drop: pasteboardItems count={len(items)}[/dim]")
-        for idx, item in enumerate(items):
+        for item in pasteboard.pasteboardItems() or []:
             s = item.stringForType_(_FILE_URL_UTI)
             if not s:
-                console.print(
-                    f"[dim]Drag drop: item[{idx}] no public.file-url[/dim]"
-                )
                 continue
-            console.print(
-                f"[dim]Drag drop: item[{idx}] public.file-url string = {s}[/dim]"
-            )
             url = NSURL.URLWithString_(s)
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
-                    s = str(p)
-                    console.print(
-                        f"[dim]Drag drop: method=pasteboardItems "
-                        f"len={len(s)} path={s}[/dim]"
-                    )
-                    return s
+                    return str(p)
     except Exception as e:
-        console.print(f"[dim]Drag drop: pasteboardItems iteration failed: {e}[/dim]")
+        _module_console.print(
+            f"[yellow]Drag drop method 2 (pasteboardItems) raised: {e}[/yellow]"
+        )
 
-    # Method 3: legacy NSFilenamesPboardType (deprecated but sometimes still
-    # populated, especially on older macOS versions)
+    # Method 3: legacy NSFilenamesPboardType
+    types = list(pasteboard.types() or [])
     if NSFilenamesPboardType in types:
-        files = pasteboard.propertyListForType_(NSFilenamesPboardType)
-        if files and len(files) > 0:
-            console.print(
-                f"[dim]Drag drop: method=NSFilenamesPboardType path={files[0]}[/dim]"
+        try:
+            files = pasteboard.propertyListForType_(NSFilenamesPboardType)
+            if files and len(files) > 0:
+                return str(files[0])
+        except Exception as e:
+            _module_console.print(
+                f"[yellow]Drag drop method 3 (NSFilenamesPboardType) raised: {e}[/yellow]"
             )
-            return str(files[0])
 
-    # All methods failed — log the pasteboard state for diagnosis.
-    console.print(
-        f"[yellow]Drag drop: ALL methods failed. "
-        f"Available types: {types}[/yellow]"
+    # Total failure — log for diagnosis.
+    _module_console.print(
+        f"[yellow]Drag drop: could not extract file path. "
+        f"Available pasteboard types: {types}[/yellow]"
     )
     return None
 
@@ -277,16 +257,10 @@ class DropTextField(NSTextField):
             # NSFilenamesPboardType — without public.file-url here, the
             # drag session never resolves and the main thread can hang.
             self.registerForDraggedTypes_([NSFilenamesPboardType, _FILE_URL_UTI])
-            # Path fields hold long POSIX paths. By default an NSTextField
-            # set programmatically only displays the LEADING characters that
-            # fit, so a long path looks truncated to "/Volumes/media6/" even
-            # though the full path is stored. Truncate at the HEAD instead so
-            # the filename — the most informative part — is always visible.
-            try:
-                from AppKit import NSLineBreakByTruncatingHead
-                self.cell().setLineBreakMode_(NSLineBreakByTruncatingHead)
-            except Exception:
-                pass
+            # Path fields hold long POSIX paths. Truncate at the HEAD so the
+            # filename (most informative part) stays visible instead of the
+            # default leading-truncation that shows just "/Volumes/foo/".
+            self.cell().setLineBreakMode_(NSLineBreakByTruncatingHead)
             # Default tooltip explains how to see the full path. Replaced with
             # the actual path the moment one is assigned.
             self.setToolTip_(
@@ -338,13 +312,8 @@ class DropTextField(NSTextField):
 
     @objc.signature(b"Q@:@")
     def draggingEntered_(self, sender):
-        pasteboard = sender.draggingPasteboard()
-        types = list(pasteboard.types() or [])
-        accepts = NSFilenamesPboardType in types or _FILE_URL_UTI in types
-        Console().print(
-            f"[dim]Drag enter: types={types} accepts={accepts}[/dim]"
-        )
-        if accepts:
+        types = sender.draggingPasteboard().types() or []
+        if NSFilenamesPboardType in types or _FILE_URL_UTI in types:
             self._set_drag_highlight(True)
             return NSDragOperationCopy
         return NSDragOperationNone
@@ -359,37 +328,14 @@ class DropTextField(NSTextField):
     @objc.signature(b"B@:@")
     def performDragOperation_(self, sender):
         self._set_drag_highlight(False)
-        console = Console()
         try:
             path = _file_path_from_pasteboard(sender.draggingPasteboard())
         except Exception as e:
-            console.print(f"[yellow]performDragOperation_ extraction failed: {e}[/yellow]")
-            path = None
-        if not path:
-            console.print("[yellow]performDragOperation_: no path extracted[/yellow]")
+            _module_console.print(f"[yellow]Drag drop extraction failed: {e}[/yellow]")
             return False
-
-        # ----- Roundtrip integrity check -----
-        # Store the path on the field and immediately read it back. If
-        # NSTextField ever silently mutates the value (it shouldn't, but
-        # this nails it down), the assertion below will surface it
-        # in the console.log instead of silently corrupting data.
-        original_len = len(path)
+        if not path:
+            return False
         self.setStringValue_(path)
-        readback = str(self.stringValue())
-        readback_len = len(readback)
-        if readback != path:
-            console.print(
-                f"[red]ROUNDTRIP MISMATCH in DropTextField.setStringValue_: "
-                f"wrote len={original_len} read len={readback_len}[/red]"
-            )
-            console.print(f"[red]  wrote: {path}[/red]")
-            console.print(f"[red]  read:  {readback}[/red]")
-        else:
-            console.print(
-                f"[dim]performDragOperation_ roundtrip OK: len={original_len}[/dim]"
-            )
-
         if self._drop_target and self._drop_action:
             self._drop_target.performSelector_withObject_(self._drop_action, self)
         return True
@@ -479,15 +425,11 @@ class FilePickerController(NSObject):
 
     def pathFieldChanged_(self, sender):
         """Called when a path field changes (drop or manual entry).
-        Pulls the value verbatim — _set_file is the SOLE place where
-        any whitespace stripping happens."""
+        Reads the value verbatim — `_set_file` is the SOLE place where
+        any whitespace handling happens."""
         for role, fld in self.path_fields.items():
             if fld is sender:
                 val = str(sender.stringValue())
-                Console().print(
-                    f"[dim]pathFieldChanged_ role={role.value} "
-                    f"received len={len(val)}[/dim]"
-                )
                 if val.strip():
                     self._set_file(role, val)
                 else:
@@ -1080,34 +1022,20 @@ class FilePickerController(NSObject):
     def _set_file(self, role, filepath):
         """Store a file path on the assignment dict.
 
-        IMPORTANT: this method does NOT strip anything except leading and
-        trailing WHITESPACE (which can be introduced by accidental
-        copy-paste). It deliberately does NOT strip quotes, braces, or
-        any other characters that may appear in a legitimate filename
-        (e.g. `'commentary'.mov` or `{notes}.mov`). The path bytes
-        produced by Cocoa drag-drop, NSOpenPanel, and user paste are
-        all stored verbatim into `self.assignments[role]`.
-
-        Logs the byte length at every step so any future mutation is
-        provable from console.log.
+        Strips ONLY leading/trailing whitespace (which can sneak in via
+        accidental copy-paste). Deliberately does NOT strip quotes,
+        braces, or any other characters that might appear in a
+        legitimate filename (e.g. `'commentary'.mov` or `{notes}.mov`).
         """
-        raw = filepath
-        cleaned = raw.strip()
-        if cleaned != raw:
-            Console().print(
-                f"[dim]_set_file role={role.value}: "
-                f"stripped {len(raw) - len(cleaned)} whitespace chars "
-                f"({len(raw)} → {len(cleaned)})[/dim]"
-            )
-        if not cleaned:
-            return
-        Console().print(
-            f"[dim]_set_file role={role.value}: stored len={len(cleaned)} "
-            f"path={cleaned}[/dim]"
-        )
-        self.assignments[role] = Path(cleaned)
+        cleaned = filepath.strip()
+        if cleaned:
+            self.assignments[role] = Path(cleaned)
 
     def _set_status(self, msg):
+        # Always log status messages — these are validation errors shown
+        # to the user (e.g. "missing required tracks", "select a database")
+        # and we want them captured in console.log too.
+        _module_console.print(f"[yellow]Picker status: {msg}[/yellow]")
         if self.status_label:
             self.status_label.setStringValue_(msg)
             self.status_label.setTextColor_(NSColor.systemRedColor())

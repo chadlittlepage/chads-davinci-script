@@ -195,7 +195,14 @@ SUPPORTED_VIDEO_EXTENSIONS: set[str] = {
     ".ari", ".arx",  # ARRIRAW
     ".crm", ".rmf",  # Canon Cinema RAW Light
     ".dng",    # CinemaDNG
-    ".cine",   # Phantom Cine
+    ".cine",   # Phantom Cine (Vision Research)
+    ".nev",    # Nikon N-RAW (Z8 / Z9, 12-bit RAW)
+    # 360 / VR formats
+    ".insv",   # Insta360 stitched 360° video (X3/X4/RS/ONE X)
+    # Camera-generated proxies / sidecars (rarely the user's intent
+    # but accept them anyway)
+    ".lrv",    # Low-resolution proxy (GoPro, Insta360, others)
+    ".lrf",    # Low-resolution proxy (DJI Osmo, Mavic, Inspire, drones)
     # Other
     ".3gp", ".vob", ".ogv",
 }
@@ -214,6 +221,7 @@ IMAGE_SEQUENCE_EXTENSIONS: set[str] = {
     ".bmp",
     ".hdr",         # Radiance HDR
     ".cin",         # Cineon
+    ".insp",        # Insta360 360° photo
 }
 
 # Supported audio (kept here for completeness; the picker is video-focused)

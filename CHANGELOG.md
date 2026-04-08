@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.18] — 2026-04-07
+
+### Added — error visibility + log rotation
+
+- **Log rotation in `console_log.py`.** The session log no longer
+  grows unbounded. On every launch, `setup_logging()` checks the
+  existing `console.log` file:
+  - If older than **30 days** → archived to `console.log.old` (one
+    backup kept; older backups overwritten)
+  - If larger than **10 MB** → tail-truncated to the last 5 MB with
+    a `=== log truncated (rolling 5 MB cap) ===` marker prepended
+  Failures during rotation are silent — log rotation must never block
+  app startup.
+
+- **Threading exception hook.** v0.2.6's
+  `install_global_exception_hook` now also installs
+  `threading.excepthook`, so Python exceptions raised in non-main
+  threads are written to console.log too. Previously they would
+  silently disappear into the thread cleanup path.
+
+- **Validation errors shown to the user are now also logged.**
+  `FilePickerController._set_status` (the validator that paints red
+  text under the picker form when something is missing) now also
+  prints the same message to the rich console, so the validation
+  error lands in `console.log`. Previously these only appeared on
+  screen and weren't captured by the export-log feature.
+
+- **`menu_bar._show_dialog` now logs to console too.** This is the
+  helper used by the menu's "Export Settings", "Import Settings",
+  and "Export Console Log" handlers to show success/failure popups.
+  Now every dialog message ALSO lands in `console.log`. The
+  `osascript` subprocess call also gained explicit
+  `encoding="utf-8", errors="replace"` and exception logging so
+  any failure is captured.
+
+- **`_file_path_from_pasteboard` re-added per-method exception
+  logging.** When a fallback method raises (genuinely rare), the
+  exception is now logged in yellow so we can see what went wrong
+  rather than silently swallowing it.
+
+### Optimizations / cleanup pass
+
+100 lines of dead and verbose-debug code removed without losing any
+functionality. The macOS 15 debugging logs we added in v0.2.5–v0.2.9
+served their purpose (caught the NSURL truncation bug, the UTF-8
+subprocess bug, the Project Settings dialog hang, and several others)
+and are no longer needed in normal operation.
+
+#### `file_picker.py` — 1619 → 1536 lines (−83)
+
+- **`_file_path_from_pasteboard`**: removed all per-event diagnostic
+  logging. The function now silently returns the path through method
+  1/2/3 and only logs in the "all methods failed" case (which never
+  fires in v0.2.17+).
+- **`draggingEntered_`**: removed the `[dim]Drag enter: types=...`
+  log that fired on every mouseover.
+- **`performDragOperation_`**: removed the roundtrip integrity check
+  (`setStringValue_` → readback → assert). Was added in v0.2.9 to
+  prove the path bytes were intact end-to-end. We have that proof
+  now and the check just adds 4 console lines per drop.
+- **`pathFieldChanged_`**: removed the per-call length log.
+- **`_set_file`**: removed both per-call length logs (the "stripped
+  whitespace" debug print and the "stored len=" debug print). The
+  function is now 4 lines instead of 18.
+- **Module-level `_module_console`**: replaces the inline `Console()`
+  instantiations in hot paths (one Console per app run instead of
+  one per drag).
+- **`NSLineBreakByTruncatingHead`**: hoisted to top-level imports,
+  removed the lazy `try/except` around the lookup.
+
+#### `metadata.py` — 621 → 604 lines (−17)
+
+- **`extract_metadata`**: removed the per-file `_check_tool()` calls.
+  `extract_mediainfo()` and `extract_ffprobe()` already do their own
+  cached `_resolve_tool()` lookup internally, so the outer check was
+  redundant work — and the yellow "tool not found" warnings printed
+  per file (5 yellow lines if the user dropped 5 files and ffprobe
+  was missing).
+- **`_check_tool`**: deleted (no more callers).
+
+### Notes
+
+- All linting passes, no behavior changes
+- Drag-drop, build pipeline, and progress window all work exactly
+  as before — they're just quieter
+- console.log files will be ~70% smaller for a typical session
+- The unhandled-exception hook + system probe + Resolve probe + tool
+  version logging are all kept (those are one-shot at session start
+  and remain useful)
+
 ## [0.2.17] — 2026-04-07
 
 ### Added — image sequence support + comprehensive format documentation
@@ -659,7 +749,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.18
 [0.2.17]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.17
 [0.2.16]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.16
 [0.2.15]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.15

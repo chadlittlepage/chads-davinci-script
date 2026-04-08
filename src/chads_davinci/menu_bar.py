@@ -138,14 +138,35 @@ class MenuTarget(NSObject):
 
 
 def _show_dialog(title: str, message: str) -> None:
-    """Show a simple macOS dialog."""
+    """Show a simple macOS dialog. ALWAYS logs to console too so the
+    text is captured in console.log, not just shown on screen."""
     import subprocess
+    # Print to console first so the message lands in console.log
+    # regardless of whether the dialog actually appears.
+    try:
+        from rich.console import Console
+        Console().print(f"[bold]{title}[/bold]\n{message}")
+    except Exception:
+        print(f"{title}\n{message}")
+
     msg = message.replace('"', '\\"').replace('\n', '\\n')
     safe_title = title.replace('"', '\\"')
-    subprocess.run([
-        "osascript", "-e",
-        f'display dialog "{msg}" with title "{safe_title}" buttons {{"OK"}}',
-    ], capture_output=True)
+    try:
+        subprocess.run(
+            ["osascript", "-e",
+             f'display dialog "{msg}" with title "{safe_title}" buttons {{"OK"}}'],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
+        )
+    except Exception as e:
+        try:
+            from rich.console import Console
+            Console().print(f"[yellow]_show_dialog osascript failed: {e}[/yellow]")
+        except Exception:
+            pass
 
 
 def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:

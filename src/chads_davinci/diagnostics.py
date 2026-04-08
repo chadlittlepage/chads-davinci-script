@@ -87,13 +87,25 @@ def write_session_probe() -> None:
 def install_global_exception_hook() -> None:
     """Route any unhandled exception through the rich console so the full
     traceback lands in console.log instead of being lost behind py2app's
-    bare 'fatal error' dialog."""
+    bare 'fatal error' dialog.
+
+    Covers three exception sources:
+      1. sys.excepthook — catches every uncaught Python exception,
+         including PyObjC-wrapped NSException (PyObjC translates
+         NSException → ObjCException, which is a Python exception).
+      2. threading.excepthook — catches exceptions raised in
+         non-main threads (Python 3.8+).
+      3. asyncio handler (no-op for now; we don't use asyncio).
+    """
+    def _format(exc_type, exc_value, exc_tb) -> str:
+        return "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+
     prev = sys.excepthook
 
-    def _hook(exc_type, exc_value, exc_tb):
+    def _sys_hook(exc_type, exc_value, exc_tb):
         try:
-            console.print("[red bold]=== Unhandled exception ===[/red bold]")
-            console.print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+            console.print("[red bold]=== Unhandled exception (main thread) ===[/red bold]")
+            console.print(_format(exc_type, exc_value, exc_tb))
         except Exception:
             pass
         try:
@@ -101,7 +113,25 @@ def install_global_exception_hook() -> None:
         except Exception:
             pass
 
-    sys.excepthook = _hook
+    sys.excepthook = _sys_hook
+
+    # Background-thread exceptions (Python 3.8+).
+    try:
+        import threading
+
+        def _thread_hook(args):
+            try:
+                console.print(
+                    f"[red bold]=== Unhandled exception in thread "
+                    f"{args.thread.name if args.thread else '?'} ===[/red bold]"
+                )
+                console.print(_format(args.exc_type, args.exc_value, args.exc_traceback))
+            except Exception:
+                pass
+
+        threading.excepthook = _thread_hook
+    except Exception:
+        pass
 
 
 def log_resolve_connection(ctx) -> None:
