@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.9] — 2026-04-07
+
+### Code-path integrity hardening for file paths
+
+The single most important change in this release: every step of the
+drag-drop / Browse / paste / preset-load pipeline now stores the file
+path string **byte-for-byte verbatim** with zero "helpful" mutation.
+Plus length logging at every transit point so any future mutation is
+provable from a single console.log.
+
+#### Removed silent string-eating
+- `_set_file()` previously stripped `{`, `}`, `"`, and `'` from the
+  start AND end of every assigned path via
+  `.strip().strip("{}").strip('"').strip("'")`. This was added to
+  defend against pasted shell-quoted paths but would silently eat
+  characters from any legitimate filename like `{notes}.mov` or
+  `'commentary'.mov`. **Removed.** The only remaining transformation
+  is a single leading/trailing whitespace strip, and that strip is
+  logged whenever it actually changes anything.
+- `pathFieldChanged_`, `okClicked_`, and `metadataOnlyClicked_` no
+  longer pre-strip the field's `stringValue()` before passing to
+  `_set_file`. `_set_file` is now the sole point of any string
+  handling.
+
+#### Provable roundtrip integrity
+- `DropTextField.performDragOperation_` now stores the extracted path
+  on the field via `setStringValue_`, immediately reads it back via
+  `stringValue()`, and asserts they are equal. If NSTextField ever
+  mutates a value silently (it shouldn't, but now we can prove it),
+  the mismatch is logged in red to console.log with both the wrote
+  and read values for diff.
+
+#### Length logging at every transit point
+- `_file_path_from_pasteboard`: logs `len=N` for every successful
+  extraction.
+- `performDragOperation_`: logs the roundtrip pass/fail and length.
+- `pathFieldChanged_`: logs the byte length received from the field.
+- `_set_file`: logs the raw length, the post-strip length (if
+  anything was stripped), and the final stored path.
+
+A future tester report can be diagnosed by reading the lengths in
+console.log — if they're equal at every step, the path is
+demonstrably intact. If any step shows a different length, we know
+exactly which one is the culprit.
+
+### Added (UX layer — independent of the integrity hardening above)
+- **Tooltip on every drop field** — overrides `setStringValue_` so
+  every assignment (drag, paste, Browse, preset load, settings
+  restore, extras) automatically updates the tooltip with the full
+  path. Hover the field for 1 second to see the COMPLETE path
+  regardless of how long it is. There is no code path that can set
+  a path without setting the tooltip too.
+- **Truncate-at-head display** (from v0.2.8) — long paths now render
+  as `…filename.mov` so the most informative part of the path (the
+  filename) is always visible.
+- **Wider picker window + wider path field** — picker is now 980 px
+  wide (was 780) and the path field is 580 px wide (was 380). About
+  80 characters of path now fit visually before truncation kicks in,
+  vs the previous ~50.
+
 ## [0.2.8] — 2026-04-07
 
 ### Fixed

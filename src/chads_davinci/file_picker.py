@@ -210,10 +210,12 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
+                    s = str(p)
                     console.print(
-                        f"[dim]Drag drop: method=readObjectsForClasses path={p}[/dim]"
+                        f"[dim]Drag drop: method=readObjectsForClasses "
+                        f"len={len(s)} path={s}[/dim]"
                     )
-                    return str(p)
+                    return s
     except Exception as e:
         console.print(f"[dim]Drag drop: readObjectsForClasses failed: {e}[/dim]")
 
@@ -235,10 +237,12 @@ def _file_path_from_pasteboard(pasteboard) -> str | None:
             if url is not None and url.isFileURL():
                 p = url.path()
                 if p:
+                    s = str(p)
                     console.print(
-                        f"[dim]Drag drop: method=pasteboardItems path={p}[/dim]"
+                        f"[dim]Drag drop: method=pasteboardItems "
+                        f"len={len(s)} path={s}[/dim]"
                     )
-                    return str(p)
+                    return s
     except Exception as e:
         console.print(f"[dim]Drag drop: pasteboardItems iteration failed: {e}[/dim]")
 
@@ -283,7 +287,33 @@ class DropTextField(NSTextField):
                 self.cell().setLineBreakMode_(NSLineBreakByTruncatingHead)
             except Exception:
                 pass
+            # Default tooltip explains how to see the full path. Replaced with
+            # the actual path the moment one is assigned.
+            self.setToolTip_(
+                "Drag a file from Finder or click Browse. "
+                "Hover this field to see the full path."
+            )
         return self
+
+    def setStringValue_(self, value):
+        """Always update the tooltip whenever the field's text changes,
+        so the COMPLETE file path is visible on hover regardless of how
+        long it is or how the field is rendered. There is no code path
+        in the picker that can set a path on this field without also
+        setting the tooltip — drag, paste, Browse, preset load, settings
+        restore, _set_extras — they all funnel through this override."""
+        objc.super(DropTextField, self).setStringValue_(value)
+        try:
+            text = str(value or "")
+            if text:
+                self.setToolTip_(text)
+            else:
+                self.setToolTip_(
+                    "Drag a file from Finder or click Browse. "
+                    "Hover this field to see the full path."
+                )
+        except Exception:
+            pass
 
     def setDropTarget_action_(self, target, action):
         self._drop_target = target
@@ -329,13 +359,37 @@ class DropTextField(NSTextField):
     @objc.signature(b"B@:@")
     def performDragOperation_(self, sender):
         self._set_drag_highlight(False)
+        console = Console()
         try:
             path = _file_path_from_pasteboard(sender.draggingPasteboard())
-        except Exception:
+        except Exception as e:
+            console.print(f"[yellow]performDragOperation_ extraction failed: {e}[/yellow]")
             path = None
         if not path:
+            console.print("[yellow]performDragOperation_: no path extracted[/yellow]")
             return False
+
+        # ----- Roundtrip integrity check -----
+        # Store the path on the field and immediately read it back. If
+        # NSTextField ever silently mutates the value (it shouldn't, but
+        # this nails it down), the assertion below will surface it
+        # in the console.log instead of silently corrupting data.
+        original_len = len(path)
         self.setStringValue_(path)
+        readback = str(self.stringValue())
+        readback_len = len(readback)
+        if readback != path:
+            console.print(
+                f"[red]ROUNDTRIP MISMATCH in DropTextField.setStringValue_: "
+                f"wrote len={original_len} read len={readback_len}[/red]"
+            )
+            console.print(f"[red]  wrote: {path}[/red]")
+            console.print(f"[red]  read:  {readback}[/red]")
+        else:
+            console.print(
+                f"[dim]performDragOperation_ roundtrip OK: len={original_len}[/dim]"
+            )
+
         if self._drop_target and self._drop_action:
             self._drop_target.performSelector_withObject_(self._drop_action, self)
         return True
@@ -424,11 +478,17 @@ class FilePickerController(NSObject):
         self.path_fields[role].setStringValue_("")
 
     def pathFieldChanged_(self, sender):
-        """Called when a path field changes (drop or manual entry)."""
+        """Called when a path field changes (drop or manual entry).
+        Pulls the value verbatim — _set_file is the SOLE place where
+        any whitespace stripping happens."""
         for role, fld in self.path_fields.items():
             if fld is sender:
-                val = str(sender.stringValue()).strip()
-                if val:
+                val = str(sender.stringValue())
+                Console().print(
+                    f"[dim]pathFieldChanged_ role={role.value} "
+                    f"received len={len(val)}[/dim]"
+                )
+                if val.strip():
                     self._set_file(role, val)
                 else:
                     self.assignments[role] = None
@@ -494,11 +554,12 @@ class FilePickerController(NSObject):
 
     def metadataOnlyClicked_(self, sender):
         """Metadata Export: extract metadata from any assigned files, skip Resolve build."""
-        # Pick up any pasted/dropped paths
+        # Pick up any pasted/dropped paths — read verbatim, _set_file
+        # is the sole point of any whitespace handling.
         for role in SELECTABLE_TRACKS:
             if self.assignments[role] is None:
-                val = str(self.path_fields[role].stringValue()).strip()
-                if val:
+                val = str(self.path_fields[role].stringValue())
+                if val.strip():
                     self._set_file(role, val)
 
         # Need at least one file
@@ -562,11 +623,12 @@ class FilePickerController(NSObject):
         NSApp.stop_(None)
 
     def okClicked_(self, sender):
-        # Last-chance: pick up any pasted/dropped paths
+        # Last-chance: pick up any pasted/dropped paths — read verbatim,
+        # _set_file is the sole point of any whitespace handling.
         for role in SELECTABLE_TRACKS:
             if self.assignments[role] is None:
-                val = str(self.path_fields[role].stringValue()).strip()
-                if val:
+                val = str(self.path_fields[role].stringValue())
+                if val.strip():
                     self._set_file(role, val)
 
         # Validate required tracks
@@ -689,7 +751,7 @@ class FilePickerController(NSObject):
         """Construct widgets for a single extra row at content y. Returns dict."""
         margin = 20
         label_w = 180
-        field_w = 380
+        field_w = 580
         btn_w = 90
         tag_browse = self.next_extra_tag
         tag_del = self.next_extra_tag + 1
@@ -1016,10 +1078,34 @@ class FilePickerController(NSObject):
         return track_assignments, track_names
 
     def _set_file(self, role, filepath):
-        filepath = filepath.strip().strip("{}").strip('"').strip("'")
-        if not filepath:
+        """Store a file path on the assignment dict.
+
+        IMPORTANT: this method does NOT strip anything except leading and
+        trailing WHITESPACE (which can be introduced by accidental
+        copy-paste). It deliberately does NOT strip quotes, braces, or
+        any other characters that may appear in a legitimate filename
+        (e.g. `'commentary'.mov` or `{notes}.mov`). The path bytes
+        produced by Cocoa drag-drop, NSOpenPanel, and user paste are
+        all stored verbatim into `self.assignments[role]`.
+
+        Logs the byte length at every step so any future mutation is
+        provable from console.log.
+        """
+        raw = filepath
+        cleaned = raw.strip()
+        if cleaned != raw:
+            Console().print(
+                f"[dim]_set_file role={role.value}: "
+                f"stripped {len(raw) - len(cleaned)} whitespace chars "
+                f"({len(raw)} → {len(cleaned)})[/dim]"
+            )
+        if not cleaned:
             return
-        self.assignments[role] = Path(filepath)
+        Console().print(
+            f"[dim]_set_file role={role.value}: stored len={len(cleaned)} "
+            f"path={cleaned}[/dim]"
+        )
+        self.assignments[role] = Path(cleaned)
 
     def _set_status(self, msg):
         if self.status_label:
@@ -1070,7 +1156,7 @@ def pick_files():
     controller = FilePickerController.alloc().init()
 
     # Window dimensions
-    win_w, win_h = 780, 1010
+    win_w, win_h = 980, 1010
     style = (
         NSWindowStyleMaskTitled
         | NSWindowStyleMaskClosable
@@ -1100,7 +1186,7 @@ def pick_files():
     margin = 20
     row_h = 36
     label_w = 180
-    field_w = 380
+    field_w = 580
     btn_w = 90
 
     controller.row_h_for_extras = row_h
