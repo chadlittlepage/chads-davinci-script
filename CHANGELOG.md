@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.21] — 2026-04-08
+
+### Added — custom track name auto-routing
+
+The filename auto-router now matches against your **custom track names** in addition to
+the built-in keyword set. If you rename a track (e.g. `L1SHW HDMI` → `Sony BVM-X300`)
+and then drop a file named `Sony_BVM-X300_take1.mov`, it will route to that track.
+
+Two-phase hybrid matcher in `models.route_filename_to_role`:
+
+1. **Phase 1** — token-based scoring against current custom track names
+   (significant tokens of length ≥ 2, ranked by match count with tie-break by token count).
+2. **Phase 2** — falls back to the original hard-coded keyword patterns
+   (`hdmi`, `hw2`, `l1shw`, `795`/`1500`/`stretch`, `300`, `source`/`reel`).
+
+`FilePickerController._route_paths` snapshots the picker's current name fields via
+`_current_track_names()` and passes them through, so renaming a track and immediately
+dropping files Just Works without restarting the app.
+
+Verified against 19 test cases (default-name, custom-name, and mixed scenarios).
+
 ## [0.2.20] — 2026-04-08
 
 ### Added — separator-insensitive filename matching

@@ -123,6 +123,31 @@ same way:
 All four route to HW2 300 nit. The matcher does NOT care how the
 keywords are separated — it only cares which keywords appear.
 
+CUSTOM TRACK NAMES (v0.2.21+)
+The auto-router also matches against your CUSTOMIZED track names.
+If you rename a track and your file names contain the new keywords,
+they auto-route correctly. Example:
+
+  1. Rename "HW2 300 nit"            → "Sony BVM-X300 (300nit)"
+  2. Rename "L1SHW 300"              → "Eizo CG3146 300nit"
+  3. Drag/drop a folder containing:
+       Sony_BVM-X300_300nit_v001.mov
+       Eizo_CG3146_300nit_v001.mov
+  4. The first file routes to the Sony row, the second to the Eizo
+     row — even though neither name contains "HW2" or "L1SHW".
+
+The matcher tokenizes your current track names (lowercases, splits
+on non-alphanumeric, drops 1-char tokens) and uses those tokens for
+matching. The track with the most matching tokens wins. If no
+custom track gets a clear match, the matcher falls back to the
+hard-coded default vocabulary (HW2 / L15HW / HWL15 / 795 / 1500 /
+300 / hdmi / reel / source) so the default workflow still Just
+Works without setup.
+
+Save the customized track names as a NAMED PRESET (top-right
+dropdown) and you can recall the whole setup — track names + their
+auto-routing patterns — with one click for different clients.
+
 Recognized keywords (case-insensitive substring match against the
 filename):
 

@@ -482,6 +482,22 @@ class FilePickerController(NSObject):
                     self.assignments[role] = None
                 break
 
+    def _current_track_names(self) -> dict:
+        """Snapshot the picker's current track-name fields as a dict
+        of `TrackRole → display name`. Used by `_route_paths` to feed
+        the auto-router with the user's CURRENT (possibly customized)
+        track names so filename matching works against renamed tracks
+        as well as the defaults."""
+        names = {}
+        for role, fld in self.name_fields.items():
+            try:
+                value = str(fld.stringValue()).strip()
+            except Exception:
+                value = ""
+            if value:
+                names[role] = value
+        return names
+
     def _route_paths(self, candidates: list[Path], source_label: str) -> None:
         """Shared routing logic for routeDroppedFolder_ and
         routeMultipleFiles_. Given a list of candidate file Paths,
@@ -495,6 +511,9 @@ class FilePickerController(NSObject):
         - Files with unsupported extensions are skipped.
         - If multiple files match the same role, the FIRST one wins.
         - Files that don't match any role are silently ignored.
+        - Matching uses the user's CURRENT track names first
+          (customized or default), then falls back to the hard-coded
+          keyword vocabulary.
 
         See `models.route_filename_to_role` for the matching rules.
         """
@@ -502,6 +521,14 @@ class FilePickerController(NSObject):
             ALL_SUPPORTED_EXTENSIONS,
             route_filename_to_role,
         )
+
+        # Snapshot the picker's current track names for token-based
+        # matching. If the user customized "HW2 300 nit" → "Sony BVM 300"
+        # and dropped a file named "Sony_BVM_300_v001.mov", the matcher
+        # picks it up via the {sony, bvm, 300} tokens from the custom
+        # name. Default-named tracks fall through to the hard-coded
+        # keyword fallback (which knows about L15HW/HWL15 synonyms).
+        custom_names = self._current_track_names()
 
         scanned = 0
         applied: list[tuple[TrackRole, Path]] = []
@@ -516,7 +543,7 @@ class FilePickerController(NSObject):
             if entry.suffix.lower() not in ALL_SUPPORTED_EXTENSIONS:
                 continue
             scanned += 1
-            role = route_filename_to_role(entry.name)
+            role = route_filename_to_role(entry.name, custom_names=custom_names)
             if role is None or role in seen_roles or role not in self.path_fields:
                 continue
             seen_roles.add(role)

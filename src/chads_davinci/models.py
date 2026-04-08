@@ -260,33 +260,95 @@ def _normalize_for_matching(s: str) -> str:
     return "".join(ch for ch in s.lower() if ch.isalnum())
 
 
-def route_filename_to_role(filename: str) -> "TrackRole | None":
+def _tokens_for_matching(name: str) -> list[str]:
+    """Extract significant matching tokens from a track name (or any
+    label string). Splits on non-alphanumeric runs, lowercases, drops
+    tokens shorter than 2 chars (avoids accidental matches on "v",
+    "a", etc.).
+
+    Examples:
+      "HW2 300 nit"             → ["hw2", "300", "nit"]
+      "L1SHW 795 Stretch 1500"  → ["l1shw", "795", "stretch", "1500"]
+      "Sony BVM-X300 (300nit)"  → ["sony", "bvm", "x300", "300nit"]
+    """
+    import re
+    return [t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) >= 2]
+
+
+def route_filename_to_role(
+    filename: str,
+    custom_names: "dict[TrackRole, str] | None" = None,
+) -> "TrackRole | None":
     """Best-effort match: figure out which TrackRole a filename looks
-    like it belongs to, based on common naming patterns from real
-    HDR-test workflows. Returns None if no clear match.
+    like it belongs to. Returns None if no clear match.
 
-    The filename is FIRST normalized via `_normalize_for_matching`
-    (lowercase + strip every non-alphanumeric character) before any
-    substring matching, so the keyword separators in the source
-    filename don't matter — `_`, `-`, ` `, `.`, etc. all collapse away.
+    Two-phase matching:
 
-    Examples that all route to HW2_300_NIT:
+    PHASE 1: TOKEN-BASED matching against the user's CURRENT track names.
+      If `custom_names` is provided (a dict of TrackRole → current
+      display name), the matcher tokenizes each track name into
+      significant words and counts how many tokens appear as substrings
+      in the filename. The track with the highest score (≥ 2) wins.
+      This is the path that lights up when the user has CUSTOMIZED
+      their track names — e.g. renamed "HW2 300 nit" to "Sony BVM 300"
+      and named their files `Sony_BVM_300_v001.mov`.
+
+    PHASE 2: HARD-CODED keyword pattern fallback.
+      If phase 1 finds no clear winner (best score < 2), fall back to
+      the original keyword patterns that know about the default
+      Resolve/Dolby workflow vocabulary (HW2, L1SHW, L15HW, HWL15,
+      300, 300nit, 795, 1500, stretch, hdmi, reel, source). This
+      preserves the legacy behavior for users who never customize.
+
+    Examples that all route to HW2_300_NIT (default track names):
       DVP1.0_Plata_Reel_HW2_300nit_v002.mov
       DVP1.0_HW_2_300_nit_v002.mov
       DVP1.0-HW2-300nit-v002.mov
       DVP1.0 HW2 300 nit v002.mov
 
-    Examples for the other roles:
+    Examples for the other default-named roles:
       L15HW_Default_Plata_300_v002.mp4               → L1SHW_300
       DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      → HW2_795_STRETCH_1500
       L15HW_Default_Plata_HWL15_795_1500_v002.mp4    → L1SHW_795_STRETCH_1500
       Reel_HDMI_Generic_TV.mov                       → L1SHW_HDMI
       CHARTSONLY_Reel_2020_ProResXQ.mov              → REEL_SOURCE
 
-    Note: HDMI is checked FIRST because L1SHW HDMI files often also
-    contain "L1SHW", "HW2", or "L15HW" in the path.
+    Custom-name example (user renamed HW2 300 nit → Sony BVM 300):
+      Sony_BVM_300_v001.mov                          → HW2_300_NIT
+      (matches via tokens [sony, bvm, 300] from the custom track name)
+
+    Note: HDMI is checked FIRST in the hard-coded fallback because
+    L1SHW HDMI files often also contain "L1SHW", "HW2", or "L15HW".
     """
     name = _normalize_for_matching(filename)
+
+    # ----- PHASE 1: Token-based matching using current track names ------
+    if custom_names:
+        # For each role, score = how many of its name tokens appear in
+        # the normalized filename. Tie-break by total token count
+        # (more tokens = more specific match).
+        scores: list[tuple[int, int, "TrackRole"]] = []
+        for role, label in custom_names.items():
+            tokens = _tokens_for_matching(label)
+            if not tokens:
+                continue
+            score = sum(1 for t in tokens if t in name)
+            if score > 0:
+                scores.append((score, len(tokens), role))
+        if scores:
+            # Sort by (score desc, token-count desc, then enum order
+            # for determinism). Pick the winner.
+            scores.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            best_score, _, best_role = scores[0]
+            # Require score >= 2 OR a unique high-confidence single
+            # token match (no other role tied)
+            if best_score >= 2:
+                return best_role
+            if len(scores) >= 2 and scores[0][0] > scores[1][0]:
+                return best_role
+            # otherwise fall through to phase 2
+
+    # ----- PHASE 2: Hard-coded keyword fallback (legacy default vocab) -
 
     # HDMI is most specific — check first
     if "hdmi" in name:
