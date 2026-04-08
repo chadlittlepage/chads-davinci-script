@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.15] — 2026-04-07
+
+### Fixed (real fix this time, after the 0.2.12-14 saga)
+
+The progress panel + Build complete dialog were *still* getting
+covered by Resolve after multiple window-level escalations
+(NSFloatingWindowLevel → NSPopUpMenuWindowLevel → NSScreenSaverWindowLevel)
+because the root cause wasn't actually about window levels at all —
+it was about the AppleScript opening Resolve's Project Settings
+modal in the first place. Two real fixes:
+
+#### 1. Stop opening Project Settings entirely
+
+The AppleScript fallback for setting the playback frame rate was the
+fundamental cause of all the "covered by Project Settings" symptoms.
+Even with a perfect window-level configuration, popping a modal
+dialog inside Resolve was always going to fight our progress UI. The
+build itself doesn't need this fallback — the timeline frame rate is
+set via the Resolve API and the playback monitor inherits from the
+timeline. Setting the playback rate independently is a minor
+convenience that has cost us many releases worth of pain.
+
+`build_main.py` no longer calls `set_playback_frame_rate()` from
+`ui_automation.py`. The function is left in the codebase (it's harmless
+and might be useful for power users who can grant Accessibility
+permission and call it manually) but is no longer wired into the
+default build flow. The flow now is:
+
+1. Read current playback frame rate via `GetSetting()`
+2. If it already matches → do nothing
+3. Otherwise call `SetSetting()` once
+4. Re-check; log success or graceful warning
+5. Either way, never open Project Settings
+
+#### 2. `_show_alert` now uses `osascript display dialog` instead of `NSAlert`
+
+`NSAlert` + `NSRunningApplication.activateWithOptions_` simply doesn't
+win the Z-order fight against DaVinci Resolve on modern macOS, even
+with `NSScreenSaverWindowLevel` set on the alert window. The system
+won't promote our app to foreground because it considers us to be in
+the background by the time the build subprocess returns.
+
+Switched the success/failure dialogs to use `osascript -e 'display
+dialog "..."'`. AppleScript's `display dialog` is shown by `osascript`
+itself via `StandardAdditions` (NOT via System Events), so:
+
+- It does NOT need Accessibility (TCC) permission — `display dialog`
+  outside any `tell` block is just StandardAdditions
+- It IS reliably brought to the front by macOS regardless of which
+  app is currently active
+- It respects the system appearance (light/dark mode)
+- It uses the standard system "stop" or "note" icon
+
+The dialog is invoked with:
+  `display dialog "..." with title "..." buttons {"OK"}
+   default button "OK" with icon note`
+
+Falls back to `NSAlert` only if `osascript` itself fails for some
+reason (which shouldn't happen — osascript is part of macOS).
+
 ## [0.2.14] — 2026-04-07
 
 ### Fixed (the v0.2.12/0.2.13 saga continues)
@@ -502,7 +562,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.14...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.15...HEAD
+[0.2.15]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.15
 [0.2.14]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.14
 [0.2.13]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.13
 [0.2.12]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.12

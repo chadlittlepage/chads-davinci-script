@@ -24,7 +24,8 @@ from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
 )
-from chads_davinci.ui_automation import set_playback_frame_rate
+# NOTE: ui_automation.set_playback_frame_rate is intentionally NOT imported.
+# See the comment block above the SetSetting call in main() for why.
 
 console = Console()
 
@@ -36,63 +37,60 @@ BANNER = (
 
 
 def _show_alert(title: str, message: str, critical: bool = False) -> None:
-    """Show a final native NSAlert before the process exits.
+    """Show a final dialog before the process exits.
 
-    Three layers of "make sure the user actually sees this":
-    1. Force-activate our app via NSRunningApplication's modern
-       activateWithOptions_ API. The legacy
-       NSApplication.activateIgnoringOtherApps_ frequently fails on
-       modern macOS when the calling process is no longer the
-       foreground app from the system's perspective.
-    2. Set the alert window's level to NSScreenSaverWindowLevel (1000)
-       BEFORE running the modal so it sits above DaVinci Resolve's Qt
-       windows and any modal dialogs.
-    3. Call orderFrontRegardless on the alert window before runModal.
+    Uses `osascript display dialog` (not NSAlert) because it's the only
+    reliable way to bring a dialog to the front above DaVinci Resolve.
+    NSAlert + NSRunningApplication.activate just doesn't win the focus
+    fight on modern macOS when the calling process is no longer
+    foreground from the WindowServer's perspective.
+
+    Bonus: `display dialog` does NOT need Accessibility (TCC) permission
+    because it's served by osascript itself via StandardAdditions, not
+    via System Events.
     """
+    # Always print to console first so the log captures the message
+    # regardless of whether the dialog actually appears.
+    console.print(f"[bold]{title}[/bold]\n{message}")
+
+    # AppleScript needs the message to be a single quoted string. Escape
+    # backslashes and double-quotes, and use \r for newlines (Apple's
+    # native line separator inside display dialog).
+    def _escape(s: str) -> str:
+        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\r")
+
+    safe_title = _escape(title)
+    safe_msg = _escape(message)
+    icon = "stop" if critical else "note"
+    script = (
+        f'display dialog "{safe_msg}" '
+        f'with title "{safe_title}" '
+        f'buttons {{"OK"}} default button "OK" '
+        f'with icon {icon}'
+    )
     try:
-        from AppKit import (
-            NSAlert,
-            NSAlertStyleCritical,
-            NSAlertStyleInformational,
-            NSApplication,
-            NSApplicationActivateAllWindows,
-            NSApplicationActivateIgnoringOtherApps,
-            NSRunningApplication,
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
         )
-
-        # Layer 1: modern activation API (works even when the legacy one fails)
+    except Exception as e:
+        console.print(f"[dim]osascript dialog failed: {e}[/dim]")
+        # Last-resort fallback: NSAlert. Worse Z-ordering on modern
+        # macOS but at least the user might see it via Cmd-Tab.
         try:
-            NSRunningApplication.currentApplication().activateWithOptions_(
-                NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
-            )
-        except Exception:
-            try:
-                NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-            except Exception:
-                pass
-
-        alert = NSAlert.alloc().init()
-        alert.setMessageText_(title)
-        alert.setInformativeText_(message)
-        alert.setAlertStyle_(NSAlertStyleCritical if critical else NSAlertStyleInformational)
-        alert.addButtonWithTitle_("OK")
-
-        # Layer 2 + 3: bump the alert's window above Resolve and force it
-        # to the front before showing it modally.
-        try:
-            w = alert.window()
-            w.setLevel_(1000)  # NSScreenSaverWindowLevel
-            try:
-                w.orderFrontRegardless()
-            except Exception:
-                pass
+            from AppKit import NSAlert, NSAlertStyleCritical, NSAlertStyleInformational
+            alert = NSAlert.alloc().init()
+            alert.setMessageText_(title)
+            alert.setInformativeText_(message)
+            alert.setAlertStyle_(NSAlertStyleCritical if critical else NSAlertStyleInformational)
+            alert.addButtonWithTitle_("OK")
+            alert.runModal()
         except Exception:
             pass
-
-        alert.runModal()
-    except Exception:
-        # Headless / no NSApp / something else weird — fall back to stdout.
-        console.print(f"[bold]{title}[/bold]\n{message}")
 
 
 def _maybe_show_first_launch_welcome() -> None:
@@ -321,37 +319,49 @@ def main() -> int:
         output_color_space=picker_result.output_color_space,
     )
 
-    # Step 4: Set playback frame rate via AppleScript before any timeline/clips.
+    # Step 4: Try to set the playback frame rate via the Resolve API.
     #
-    # IMPORTANT: only run the AppleScript fallback if the playback frame rate
-    # is genuinely different from what we want. If it already matches, calling
-    # the AppleScript would open Resolve's Project Settings dialog, try to
-    # "set" the same value (no-op), find the Save button disabled (because
-    # Resolve sees no change), and leave the modal dialog OPEN — which then
-    # blocks every subsequent API call (ImportMedia, AddTrack, etc.) in the
-    # build_worker subprocess. Symptom: every media import silently fails.
+    # We DELIBERATELY do NOT call the AppleScript UI-automation fallback
+    # any more, even if the API call returns falsy. The AppleScript opens
+    # Resolve's Project Settings modal dialog, which causes a cascade of
+    # problems that took multiple releases to chase:
+    #   - The dialog covers our floating progress panel (Resolve is Qt;
+    #     its modals bypass AppKit's window level hierarchy)
+    #   - If the value already matches, Save is disabled and the dialog
+    #     is left open, blocking every subsequent Resolve API call
+    #   - It requires Accessibility permission, which most users haven't
+    #     granted, producing -1719 TCC errors
+    #
+    # The build itself works fine without this — the timeline frame rate
+    # is set via the API on line above (set_project_settings) and the
+    # playback monitor inherits from the timeline. Setting the playback
+    # rate independently is a minor convenience that isn't worth the
+    # cost of the AppleScript fallback.
     console.print()
     desired = str(picker_result.frame_rate)
-    current_playback = ""
     try:
         current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
     except Exception:
-        pass
+        current_playback = ""
     if current_playback == desired:
-        console.print(
-            f"  Playback frame rate already {desired} — skipping UI automation"
-        )
+        console.print(f"  Playback frame rate already {desired}")
     else:
-        r_playback = ctx.project.SetSetting("timelinePlaybackFrameRate", desired)
-        if not r_playback:
-            # Re-check after the SetSetting attempt — Resolve sometimes accepts
-            # the value but reports failure.
-            try:
-                current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
-            except Exception:
-                pass
-            if current_playback != desired:
-                set_playback_frame_rate(desired)
+        try:
+            ctx.project.SetSetting("timelinePlaybackFrameRate", desired)
+        except Exception:
+            pass
+        try:
+            current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
+        except Exception:
+            pass
+        if current_playback == desired:
+            console.print(f"  Playback frame rate set to {desired} via API")
+        else:
+            console.print(
+                f"  [yellow]Could not set playback frame rate via API "
+                f"(currently {current_playback}); the playback monitor will "
+                f"inherit from the timeline frame rate ({desired}).[/yellow]"
+            )
 
     # Step 5: Run bins/media/timeline in subprocess (fresh Resolve API connection)
     console.print()
