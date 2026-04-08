@@ -17,15 +17,15 @@ chad.littlepage@gmail.com
 from __future__ import annotations
 
 from AppKit import (
-    NSApp,
     NSBackingStoreBuffered,
     NSColor,
     NSFont,
     NSMakeRect,
+    NSPanel,
     NSProgressIndicator,
     NSProgressIndicatorStyleSpinning,
     NSTextField,
-    NSWindow,
+    NSWindowStyleMaskNonactivatingPanel,
     NSWindowStyleMaskTitled,
 )
 from Foundation import NSDate, NSDefaultRunLoopMode, NSRunLoop
@@ -34,7 +34,19 @@ from Foundation import NSDate, NSDefaultRunLoopMode, NSRunLoop
 _RETAINED: list = []
 
 # NSWindow.level constants — kept here so we don't pull in extra symbols.
-_NS_FLOATING_WINDOW_LEVEL = 3
+# We pick a level above Resolve's Project Settings modal AND above the
+# normal app foreground level so the panel stays visible no matter what
+# Resolve does. NSPopUpMenuWindowLevel = 101 is high enough to beat any
+# normal app modal panel without going into screen-saver territory.
+_NS_POPUP_MENU_WINDOW_LEVEL = 101
+
+# NSWindowCollectionBehavior bits we need:
+#   1 << 0 = canJoinAllSpaces  — visible on every Space
+#   1 << 4 = stationary        — doesn't slide away on Space switch
+#   1 << 8 = fullScreenAuxiliary — visible above other apps' full-screen windows
+_COLLECTION_CAN_JOIN_ALL_SPACES = 1 << 0
+_COLLECTION_STATIONARY = 1 << 4
+_COLLECTION_FULL_SCREEN_AUX = 1 << 8
 
 
 class ProgressWindow:
@@ -52,9 +64,12 @@ class ProgressWindow:
 
     def __init__(self, title: str = "Chad's DaVinci Script — Working…") -> None:
         win_w, win_h = 480, 150
-        style = NSWindowStyleMaskTitled
+        # NSPanel + NonactivatingPanel = doesn't steal focus when shown,
+        # which means clicking it doesn't pull our app to the front and
+        # the panel can stay visible above whichever app IS in front.
+        style = NSWindowStyleMaskTitled | NSWindowStyleMaskNonactivatingPanel
 
-        self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        self.window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, win_w, win_h),
             style,
             NSBackingStoreBuffered,
@@ -62,7 +77,41 @@ class ProgressWindow:
         )
         self.window.setTitle_(title)
         self.window.center()
-        self.window.setLevel_(_NS_FLOATING_WINDOW_LEVEL)
+
+        # ----- "Stay above EVERYTHING" configuration -----
+        # 1. High window level — beats Resolve's Project Settings modal
+        #    and Resolve's main window even when Resolve is the foreground app.
+        self.window.setLevel_(_NS_POPUP_MENU_WINDOW_LEVEL)
+        # 2. Mark as a floating panel — keeps it above normal windows.
+        try:
+            self.window.setFloatingPanel_(True)
+        except Exception:
+            pass
+        # 3. Don't steal focus when shown.
+        try:
+            self.window.setBecomesKeyOnlyIfNeeded_(True)
+        except Exception:
+            pass
+        # 4. Stay visible above modal sheets/panels from other apps.
+        try:
+            self.window.setWorksWhenModal_(True)
+        except Exception:
+            pass
+        # 5. Don't disappear when our app loses focus to Resolve.
+        try:
+            self.window.setHidesOnDeactivate_(False)
+        except Exception:
+            pass
+        # 6. Visible on every Space + above other apps' full-screen windows.
+        try:
+            self.window.setCollectionBehavior_(
+                _COLLECTION_CAN_JOIN_ALL_SPACES
+                | _COLLECTION_STATIONARY
+                | _COLLECTION_FULL_SCREEN_AUX
+            )
+        except Exception:
+            pass
+
         # User can't close it from the title bar — only the script can.
         try:
             self.window.standardWindowButton_(0).setHidden_(True)  # close
@@ -133,11 +182,18 @@ class ProgressWindow:
     # ---- Public API -----------------------------------------------------
 
     def show(self) -> None:
-        self.window.makeKeyAndOrderFront_(None)
+        # orderFrontRegardless_ shows the panel above ALL windows from all
+        # apps (subject to the panel's window level) without making our app
+        # active. This is what we want — the user is presumably in Resolve
+        # and we want to show progress on top WITHOUT pulling them out of
+        # Resolve and stealing keyboard focus.
         try:
-            NSApp.activateIgnoringOtherApps_(True)
+            self.window.orderFrontRegardless()
         except Exception:
-            pass
+            try:
+                self.window.makeKeyAndOrderFront_(None)
+            except Exception:
+                pass
         self.spinner.startAnimation_(None)
         self.pump()
 

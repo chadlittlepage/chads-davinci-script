@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.13] — 2026-04-07
+
+### Fixed
+- **Progress window was getting covered by Resolve's Project Settings
+  modal and then by Resolve's main window after the modal closed.**
+  v0.2.12 used `NSWindow` at `NSFloatingWindowLevel` (3), which is
+  high enough to float above normal app windows but NOT high enough
+  to beat Resolve's modal Project Settings dialog (which is at
+  modal-panel level), and the progress window also disappeared when
+  our app lost focus to Resolve.
+
+  Fix: rewrite `progress_window.py` to use **`NSPanel`** instead of
+  `NSWindow`, with the full "always on top, never hide, never steal
+  focus" set of flags:
+  - **Window level `NSPopUpMenuWindowLevel` (101)** — beats every
+    normal app modal panel.
+  - **`NSWindowStyleMaskNonactivatingPanel`** — clicks on the panel
+    don't pull our app to the foreground (so the user can keep
+    interacting with whatever they want behind it).
+  - **`setFloatingPanel_(True)`** — declares it as a floating utility
+    panel.
+  - **`setBecomesKeyOnlyIfNeeded_(True)`** — never steals keyboard
+    focus.
+  - **`setWorksWhenModal_(True)`** — stays visible above modal
+    sheets/dialogs from other apps (this is the key flag that makes
+    it appear above Resolve's Project Settings).
+  - **`setHidesOnDeactivate_(False)`** — doesn't disappear when our
+    app loses focus to Resolve.
+  - **Collection behavior `canJoinAllSpaces | stationary |
+    fullScreenAuxiliary`** — visible on every Space + above
+    full-screen apps.
+  - **`orderFrontRegardless()`** instead of `makeKeyAndOrderFront_`
+    so the panel comes to the front without making our app active.
+
+  Net result: the progress panel stays visible above Resolve, above
+  Resolve's Project Settings modal, above any other app the user
+  might switch to, until the build script explicitly closes it.
+
 ## [0.2.12] — 2026-04-07
 
 ### Added
@@ -427,7 +465,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.12...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.13...HEAD
+[0.2.13]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.13
 [0.2.12]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.12
 [0.2.11]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.11
 [0.2.10]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.10
