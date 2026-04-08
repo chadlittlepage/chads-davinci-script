@@ -602,46 +602,78 @@ class FilePickerController(NSObject):
         self._route_paths(candidates, f"{len(candidates)} dropped file(s)")
 
     def connectClicked_(self, sender):
-        """Connect to Resolve and populate database list."""
-        self.connect_status.setStringValue_("Connecting...")
-        self.connect_status.setTextColor_(NSColor.grayColor())
+        """Connect to Resolve and populate database list.
 
-        # Temporarily elevate our window above Resolve's splash screen
-        # (which is borderless and ignores normal app activation).
+        Runs the actual connect (which may auto-launch Resolve and wait
+        up to 90s) on a background thread so the UI stays responsive.
+        Window is elevated to NSScreenSaverWindowLevel for the duration
+        so Resolve's borderless splash can't cover it, and re-elevated
+        once more on completion in case Resolve grabbed focus when its
+        main window opened.
+        """
+        import threading
         from AppKit import (
             NSScreenSaverWindowLevel,
-            NSNormalWindowLevel,
             NSApp,
-            NSApplicationActivateIgnoringOtherApps,
             NSDate,
             NSRunLoop,
         )
+        from PyObjCTools import AppHelper
+
+        self.connect_status.setStringValue_("Connecting...")
+        self.connect_status.setTextColor_(NSColor.grayColor())
+        sender.setEnabled_(False)
+
         win = self.window if hasattr(self, "window") else sender.window()
-        prior_level = None
+        self._connect_prior_level = None
         try:
-            prior_level = win.level()
+            self._connect_prior_level = win.level()
             win.setLevel_(NSScreenSaverWindowLevel)
             win.makeKeyAndOrderFront_(None)
             NSApp.activateIgnoringOtherApps_(True)
             win.display()
-            # Let Cocoa actually flush the elevation + repaint before we
-            # block on the connect call.
             NSRunLoop.currentRunLoop().runUntilDate_(
                 NSDate.dateWithTimeIntervalSinceNow_(0.05)
             )
         except Exception:
             pass
 
-        try:
-            self.db_list = _get_resolve_databases()
-        finally:
+        def worker():
             try:
-                if prior_level is not None:
-                    win.setLevel_(prior_level)
-                else:
-                    win.setLevel_(NSNormalWindowLevel)
+                db_list = _get_resolve_databases()
             except Exception:
-                pass
+                db_list = []
+            AppHelper.callAfter(self._connectFinished, db_list, sender, win)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _connectFinished(self, db_list, sender, win):
+        """Main-thread callback after the background connect completes."""
+        from AppKit import (
+            NSNormalWindowLevel,
+            NSScreenSaverWindowLevel,
+            NSApp,
+            NSDate,
+            NSRunLoop,
+        )
+
+        # Re-elevate briefly so we hop above any window Resolve raised
+        # when its database/main window finished opening, then drop back
+        # to a normal level.
+        try:
+            win.setLevel_(NSScreenSaverWindowLevel)
+            win.makeKeyAndOrderFront_(None)
+            NSApp.activateIgnoringOtherApps_(True)
+            win.display()
+            NSRunLoop.currentRunLoop().runUntilDate_(
+                NSDate.dateWithTimeIntervalSinceNow_(0.1)
+            )
+            prior = getattr(self, "_connect_prior_level", None)
+            win.setLevel_(prior if prior is not None else NSNormalWindowLevel)
+        except Exception:
+            pass
+
+        self.db_list = db_list
         if not self.db_list:
             self.connect_status.setStringValue_(
                 "Connected (no DB list, defaulting to Local Database)"
@@ -658,6 +690,7 @@ class FilePickerController(NSObject):
             self.connect_status.setTextColor_(NSColor.systemGreenColor())
             self._filter_databases()
 
+        sender.setEnabled_(True)
         sender.setTitle_("Refresh")
 
     def dbTypeChanged_(self, sender):

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.28] — 2026-04-08
+
+### Fixed
+
+- **Beachball during Connect to Resolve.** The connect call now runs
+  on a background thread via `threading.Thread`, with the result
+  dispatched back to the main thread via `PyObjCTools.AppHelper.callAfter`.
+  The picker stays fully interactive while Resolve boots.
+- **Resolve's main window jumping in front after the database loaded.**
+  The completion handler re-elevates the picker to
+  `NSScreenSaverWindowLevel` for one runloop tick, then drops back to
+  the prior level — so we hop above whatever Resolve just raised.
+
 ## [0.2.27] — 2026-04-08
 
 ### Fixed
