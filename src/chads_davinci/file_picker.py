@@ -606,7 +606,27 @@ class FilePickerController(NSObject):
         self.connect_status.setStringValue_("Connecting...")
         self.connect_status.setTextColor_(NSColor.grayColor())
 
-        self.db_list = _get_resolve_databases()
+        # Temporarily elevate our window above Resolve's splash screen
+        # (which is borderless and ignores normal app activation).
+        from AppKit import NSScreenSaverWindowLevel, NSNormalWindowLevel
+        win = self.window if hasattr(self, "window") else sender.window()
+        prior_level = None
+        try:
+            prior_level = win.level()
+            win.setLevel_(NSScreenSaverWindowLevel)
+        except Exception:
+            pass
+
+        try:
+            self.db_list = _get_resolve_databases()
+        finally:
+            try:
+                if prior_level is not None:
+                    win.setLevel_(prior_level)
+                else:
+                    win.setLevel_(NSNormalWindowLevel)
+            except Exception:
+                pass
         if not self.db_list:
             self.connect_status.setStringValue_(
                 "Connected (no DB list, defaulting to Local Database)"

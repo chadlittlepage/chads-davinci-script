@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.26] — 2026-04-08
+
+### Fixed
+
+- Resolve's borderless splash screen ignores normal app activation, so
+  it was still covering the file picker during auto-launch. Now the
+  picker temporarily elevates itself to `NSScreenSaverWindowLevel`
+  while waiting for Resolve, then restores its normal level once
+  connected.
+
 ## [0.2.25] — 2026-04-08
 
 ### Fixed
