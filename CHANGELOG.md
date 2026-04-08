@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.16] — 2026-04-07
+
+### Fixed
+- **Restored the AppleScript playback-frame-rate fallback (correctly
+  this time).** v0.2.15 removed it entirely on the assumption that
+  the playback monitor would inherit from the timeline frame rate.
+  In practice the Resolve API treats `timelinePlaybackFrameRate` as
+  read-only on the user's Resolve version, the playback monitor
+  does NOT inherit, and the result was that the playback rate
+  stayed at Resolve's default (24 fps) even though the timeline
+  was correctly set to 23.976.
+
+  v0.2.16 brings back the `set_playback_frame_rate()` AppleScript
+  call when the API path doesn't take effect, but wraps it
+  correctly:
+  1. Read current `timelinePlaybackFrameRate` via `GetSetting()`.
+     If it already matches → done.
+  2. Call `SetSetting()` once via the API.
+  3. Re-check. If now matches → done.
+  4. Otherwise:
+     - Update the progress panel status to "Setting playback frame
+       rate via Resolve UI…" with sub-status explaining that
+       Resolve will briefly show its Project Settings dialog.
+     - **`orderOut_(None)`** the progress panel so it isn't covered
+       by the Project Settings dialog.
+     - Run `set_playback_frame_rate()` (still has the v0.2.10
+       "click Cancel if Save is disabled" safety so the dialog
+       always closes).
+     - **`orderFrontRegardless()`** the progress panel back.
+     - Update status to "Continuing build…".
+
+- **Two dialogs at the end (progress panel + Build complete alert
+  visible simultaneously).** `progress.close()` was calling
+  `orderOut_(None)` and `close()` on the panel, but the next thing
+  the calling code did was a synchronous `subprocess.run` on
+  `osascript display dialog`, which blocked the main thread before
+  the WindowServer had a chance to actually remove the panel from
+  the screen. Result: the user saw both the "Done!" panel and the
+  "Build complete" dialog at the same time.
+
+  Fix in `progress_window.close()`: aggressively pump the run loop
+  with `NSRunLoop.runMode_beforeDate_(NSDefaultRunLoopMode, ...)`
+  for ~240 ms after `orderOut_` and again after `close()`. This
+  forces the WindowServer to process the close request before
+  control returns to the caller.
+
 ## [0.2.15] — 2026-04-07
 
 ### Fixed (real fix this time, after the 0.2.12-14 saga)
@@ -562,7 +608,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.15...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.16...HEAD
+[0.2.16]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.16
 [0.2.15]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.15
 [0.2.14]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.14
 [0.2.13]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.13

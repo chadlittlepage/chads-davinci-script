@@ -232,10 +232,41 @@ class ProgressWindow:
             pass
 
     def close(self) -> None:
+        """Hide and destroy the panel. Pumps the run loop several times
+        afterward to make sure the WindowServer actually removes the
+        window from the screen BEFORE the caller does anything else
+        (e.g. shows a follow-up dialog). Without the pumps the panel
+        can stay visually present even after orderOut_ if the next
+        thing the caller does is a synchronous block like
+        subprocess.run on osascript."""
         try:
             self.spinner.stopAnimation_(None)
+        except Exception:
+            pass
+        try:
             self.window.orderOut_(None)
+        except Exception:
+            pass
+        # Aggressively pump so orderOut_ actually takes visual effect.
+        try:
+            for _ in range(8):
+                NSRunLoop.currentRunLoop().runMode_beforeDate_(
+                    NSDefaultRunLoopMode,
+                    NSDate.dateWithTimeIntervalSinceNow_(0.03),
+                )
+        except Exception:
+            pass
+        try:
             self.window.close()
+        except Exception:
+            pass
+        # Final pump to make sure the close took effect too.
+        try:
+            for _ in range(4):
+                NSRunLoop.currentRunLoop().runMode_beforeDate_(
+                    NSDefaultRunLoopMode,
+                    NSDate.dateWithTimeIntervalSinceNow_(0.03),
+                )
         except Exception:
             pass
         # Leave the object in _RETAINED until the process exits — no harm.

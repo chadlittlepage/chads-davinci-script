@@ -24,8 +24,7 @@ from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
 )
-# NOTE: ui_automation.set_playback_frame_rate is intentionally NOT imported.
-# See the comment block above the SetSetting call in main() for why.
+from chads_davinci.ui_automation import set_playback_frame_rate
 
 console = Console()
 
@@ -319,24 +318,23 @@ def main() -> int:
         output_color_space=picker_result.output_color_space,
     )
 
-    # Step 4: Try to set the playback frame rate via the Resolve API.
+    # Step 4: Set the playback frame rate.
     #
-    # We DELIBERATELY do NOT call the AppleScript UI-automation fallback
-    # any more, even if the API call returns falsy. The AppleScript opens
-    # Resolve's Project Settings modal dialog, which causes a cascade of
-    # problems that took multiple releases to chase:
-    #   - The dialog covers our floating progress panel (Resolve is Qt;
-    #     its modals bypass AppKit's window level hierarchy)
-    #   - If the value already matches, Save is disabled and the dialog
-    #     is left open, blocking every subsequent Resolve API call
-    #   - It requires Accessibility permission, which most users haven't
-    #     granted, producing -1719 TCC errors
+    # The Resolve API treats `timelinePlaybackFrameRate` as read-only on
+    # most Resolve versions, so SetSetting() returns falsy and the
+    # playback monitor stays at Resolve's default (e.g. 24) even though
+    # the timeline frame rate is correctly set to (e.g.) 23.976.
     #
-    # The build itself works fine without this — the timeline frame rate
-    # is set via the API on line above (set_project_settings) and the
-    # playback monitor inherits from the timeline. Setting the playback
-    # rate independently is a minor convenience that isn't worth the
-    # cost of the AppleScript fallback.
+    # If the API call doesn't take effect, fall back to UI automation
+    # via AppleScript. The AppleScript opens Resolve's Project Settings
+    # dialog, sets the field, and clicks Save (or Cancel if Save is
+    # disabled because the value was already correct — see
+    # ui_automation.set_playback_frame_rate for details).
+    #
+    # We HIDE the progress panel before running the AppleScript so it
+    # isn't covered by the Project Settings dialog (Resolve is Qt and
+    # its modals bypass AppKit's window level hierarchy), then SHOW it
+    # again afterward.
     console.print()
     desired = str(picker_result.frame_rate)
     try:
@@ -357,11 +355,38 @@ def main() -> int:
         if current_playback == desired:
             console.print(f"  Playback frame rate set to {desired} via API")
         else:
+            # Fall back to AppleScript UI automation. Hide the progress
+            # panel briefly so it doesn't get covered by the Project
+            # Settings dialog, run the script, then re-show.
             console.print(
-                f"  [yellow]Could not set playback frame rate via API "
-                f"(currently {current_playback}); the playback monitor will "
-                f"inherit from the timeline frame rate ({desired}).[/yellow]"
+                f"  [dim]API couldn't set playback frame rate "
+                f"(still {current_playback}); falling back to UI automation[/dim]"
             )
+            if progress:
+                progress.set_status(
+                    "Setting playback frame rate via Resolve UI…",
+                    "Resolve will briefly show its Project Settings dialog",
+                )
+                # Hide the panel — it's about to be covered anyway and we
+                # don't want a half-visible mess on screen.
+                try:
+                    progress.window.orderOut_(None)
+                    progress.pump()
+                except Exception:
+                    pass
+            try:
+                set_playback_frame_rate(desired)
+            finally:
+                if progress:
+                    try:
+                        progress.window.orderFrontRegardless()
+                        progress.pump()
+                    except Exception:
+                        pass
+                    progress.set_status(
+                        "Continuing build…",
+                        "Playback frame rate updated",
+                    )
 
     # Step 5: Run bins/media/timeline in subprocess (fresh Resolve API connection)
     console.print()
