@@ -1478,6 +1478,67 @@ def _make_label(text, frame, bold=False, size=13.0):
     return label
 
 
+# ---------------------------------------------------------------------------
+# Preset row layout — extracted as a free function so the standalone preview
+# tool (preview_preset.py) renders from EXACTLY the same code path as the
+# real picker. Edit the gap constants here and both stay in sync.
+# ---------------------------------------------------------------------------
+
+# Per-pair frame gaps (NSButton/NSPopUpButton bezels each have invisible
+# inset, so a single shared gap renders unevenly — these are tuned by eye).
+PRESET_LABEL_POPUP_GAP   = -5    # Preset:  →  popup
+PRESET_POPUP_BUTTON_GAP  = -3    # popup    →  Save
+PRESET_BUTTON_BUTTON_GAP = -5    # Save     →  Delete
+PRESET_BTN_W   = 70              # Save / Delete (same width)
+PRESET_POPUP_W = 180
+PRESET_LABEL_W = 50
+PRESET_ROW_H   = 24
+
+
+def build_preset_row(content, right_x: int, preset_y: int):
+    """Add the preset row (Preset: label, popup, Save, Delete) to `content`,
+    right-justified so the right edge of Delete sits at `right_x`.
+
+    Returns (label, popup, save_btn, delete_btn). Caller must wire up the
+    target/action and store references — this helper only handles geometry
+    and styling so the preview tool can call it without a real controller.
+    """
+    del_x   = right_x - PRESET_BTN_W
+    save_x  = del_x   - PRESET_BUTTON_BUTTON_GAP - PRESET_BTN_W
+    popup_x = save_x  - PRESET_POPUP_BUTTON_GAP  - PRESET_POPUP_W
+    label_x = popup_x - PRESET_LABEL_POPUP_GAP   - PRESET_LABEL_W
+
+    label = _make_label(
+        "Preset:", NSMakeRect(label_x, preset_y + 4, PRESET_LABEL_W, 18),
+        bold=True, size=11,
+    )
+    content.addSubview_(label)
+
+    popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(popup_x, preset_y, PRESET_POPUP_W, PRESET_ROW_H), False
+    )
+    popup.addItemWithTitle_("— Select Preset —")
+    content.addSubview_(popup)
+
+    save_btn = NSButton.alloc().initWithFrame_(
+        NSMakeRect(save_x, preset_y, PRESET_BTN_W, PRESET_ROW_H)
+    )
+    save_btn.setTitle_("Save")
+    save_btn.setBezelStyle_(1)
+    save_btn.setToolTip_("Save current settings as a named preset")
+    content.addSubview_(save_btn)
+
+    del_btn = NSButton.alloc().initWithFrame_(
+        NSMakeRect(del_x, preset_y, PRESET_BTN_W, PRESET_ROW_H)
+    )
+    del_btn.setTitle_("Delete")
+    del_btn.setBezelStyle_(1)
+    del_btn.setToolTip_("Delete the selected preset")
+    content.addSubview_(del_btn)
+
+    return label, popup, save_btn, del_btn
+
+
 def _make_textfield(text, frame):
     field = NSTextField.alloc().initWithFrame_(frame)
     field.setStringValue_(text)
@@ -1549,44 +1610,25 @@ def pick_files():
     content.addSubview_(header)
     controller.upper_views.append(header)
 
-    # Preset controls (top right): label, popup, Save, Delete
+    # Preset controls (top right): right-justified to the same vertical
+    # line as the row ✕ buttons. Built via build_preset_row so the live
+    # preview tool (preview_preset.py) renders from the EXACT same code
+    # path and matches the real picker pixel-for-pixel.
     preset_y = y - 2
-    preset_label = _make_label(
-        "Preset:", NSMakeRect(win_w - margin - 360, preset_y + 4, 50, 18),
-        bold=True, size=11,
-    )
-    content.addSubview_(preset_label)
-    controller.upper_views.append(preset_label)
-    preset_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
-        NSMakeRect(win_w - margin - 305, preset_y, 180, 24), False
-    )
+    right_x = margin + label_w + 10 + field_w + 10 + btn_w + 5 + 28
+    preset_views = build_preset_row(content, right_x, preset_y)
+    preset_label, preset_popup, preset_save_btn, preset_del_btn = preset_views
+    controller.upper_views.extend(preset_views)
+
     preset_popup.setTarget_(controller)
     preset_popup.setAction_("presetSelected:")
-    content.addSubview_(preset_popup)
     controller.preset_popup = preset_popup
-    controller.upper_views.append(preset_popup)
 
-    preset_save_btn = NSButton.alloc().initWithFrame_(
-        NSMakeRect(win_w - margin - 120, preset_y, 60, 24)
-    )
-    preset_save_btn.setTitle_("Save")
-    preset_save_btn.setBezelStyle_(1)
-    preset_save_btn.setToolTip_("Save current settings as a named preset")
     preset_save_btn.setTarget_(controller)
     preset_save_btn.setAction_("savePresetClicked:")
-    content.addSubview_(preset_save_btn)
-    controller.upper_views.append(preset_save_btn)
 
-    preset_del_btn = NSButton.alloc().initWithFrame_(
-        NSMakeRect(win_w - margin - 58, preset_y, 58, 24)
-    )
-    preset_del_btn.setTitle_("Delete")
-    preset_del_btn.setBezelStyle_(1)
-    preset_del_btn.setToolTip_("Delete the selected preset")
     preset_del_btn.setTarget_(controller)
     preset_del_btn.setAction_("deletePresetClicked:")
-    content.addSubview_(preset_del_btn)
-    controller.upper_views.append(preset_del_btn)
 
     controller._refresh_preset_popup()
     y -= 30
@@ -1699,7 +1741,7 @@ def pick_files():
     sep_view.setWantsLayer_(True)
     sep_view.layer().setBackgroundColor_(CGColorCreateGenericRGB(0.5, 0.5, 0.5, 0.4))
     content.addSubview_(sep_view)
-    y -= 20
+    y -= 36   # extra breathing room so the 16pt bold header doesn't kiss the line
 
     # Project Settings header
     proj_header = _make_label(

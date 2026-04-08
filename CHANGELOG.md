@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.31] — 2026-04-08
+
+### Added
+
+- **Squircle-baked app icon.** The icon source is now pre-masked with
+  Apple's superellipse shape (824×824 inner content, 184px corner
+  radius, 100px transparent padding) so the icon renders as a rounded
+  squircle on macOS 15 in addition to macOS 26 (which auto-applies its
+  own squircle on top, but the asset already conforms).
+- **build_fast.sh** for iteration: skips the second DMG notarization
+  round, finishes in ~1:30 vs ~5+ minutes. The .app inside is still
+  fully notarized + stapled, so Gatekeeper passes. Use the original
+  `build_and_sign.sh` for distribution to third parties.
+- **preview_preset.py** dev tool: live interactive Cocoa window with
+  three sliders that tune the preset row gaps in real time. Imports
+  `build_preset_row()` from the real picker module so what you see in
+  the preview matches the live picker pixel-for-pixel.
+
+### Changed
+
+- **Preset row layout.** Save / Delete buttons are now both 70px wide
+  (room for "Delete" without crowding). The whole Preset / popup /
+  Save / Delete cluster is right-justified to the same vertical line
+  as the row ✕ buttons. Per-pair frame gaps tuned by eye to look even
+  despite the different invisible bezel insets on NSPopUpButton vs
+  NSButton.
+- **Project Settings header** now has 36px breathing room below the
+  divider line (was 20px and visually overlapping the line).
+- **Preset row build extracted** to a free `build_preset_row()` helper
+  in file_picker.py so the live preview tool calls the exact same
+  production code path.
+
+### Removed
+
+- Dead `_pump_runloop()` helper in resolve_connection.py. The wait
+  loop now runs on a worker thread, so the main thread services its
+  own runloop and the pump call had become a no-op.
+
 ## [0.2.30] — 2026-04-08
 
 ### Removed

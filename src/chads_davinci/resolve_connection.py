@@ -43,19 +43,6 @@ def _is_resolve_running() -> bool:
         return False
 
 
-def _pump_runloop(seconds: float) -> None:
-    """Pump the Cocoa runloop for `seconds` so our window keeps repainting
-    while we wait for Resolve to launch. Falls back to time.sleep if
-    AppKit isn't importable (e.g. in the build_worker subprocess).
-    """
-    try:
-        from AppKit import NSDate, NSRunLoop
-        deadline = NSDate.dateWithTimeIntervalSinceNow_(seconds)
-        NSRunLoop.currentRunLoop().runUntilDate_(deadline)
-    except Exception:
-        time.sleep(seconds)
-
-
 def _reactivate_self() -> None:
     """Bring our own app back to the foreground.
 
@@ -85,12 +72,12 @@ def _launch_resolve_and_wait(timeout_sec: int = 90) -> bool:
         console.print(f"[red]Failed to launch DaVinci Resolve: {e}[/red]")
         return False
 
+    # This function runs on a worker thread (file_picker.connectClicked_
+    # spawns one), so a plain sleep is correct — the main thread services
+    # its own runloop and keeps the picker repainting on its own.
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
-        # Pumping the runloop instead of plain sleep keeps our window
-        # repainting (otherwise the middle of the picker stays blank
-        # while the main thread is blocked in this call).
-        _pump_runloop(1.5)
+        time.sleep(1.5)
         # Resolve grabs focus on launch despite -g; pull it back every poll.
         _reactivate_self()
         try:
