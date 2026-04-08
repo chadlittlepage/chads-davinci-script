@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.8] — 2026-04-07
+
+### Fixed
+- **Path field appears truncated to "/Volumes/foo/" in the picker UI.**
+  Pure visual bug — the v0.2.4 drag-and-drop fix already extracts the
+  full POSIX path correctly (verified by the diagnostic logs in v0.2.5+),
+  but NSTextField defaults to displaying only the LEADING characters
+  that fit when text is set programmatically, so a long path stored in
+  the field looked truncated to its volume root in the UI even though
+  the full path was stored and would have been used by the build.
+
+  Fix: every `DropTextField` now sets its cell line-break mode to
+  `NSLineBreakByTruncatingHead`, which renders long paths as
+  `…filename.mov` — showing the most informative part (the filename)
+  instead of the volume root. The full path is still stored and
+  retrievable via `stringValue()` exactly as before.
+
+  This was the cause of multiple "drag and drop failed" reports today
+  that were actually successful drops with confusing UI display.
+
 ## [0.2.7] — 2026-04-07
 
 ### Fixed
@@ -208,7 +228,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.8
 [0.2.7]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.7
 [0.2.6]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.6
 [0.2.5]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.5

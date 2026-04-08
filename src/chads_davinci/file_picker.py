@@ -273,6 +273,16 @@ class DropTextField(NSTextField):
             # NSFilenamesPboardType — without public.file-url here, the
             # drag session never resolves and the main thread can hang.
             self.registerForDraggedTypes_([NSFilenamesPboardType, _FILE_URL_UTI])
+            # Path fields hold long POSIX paths. By default an NSTextField
+            # set programmatically only displays the LEADING characters that
+            # fit, so a long path looks truncated to "/Volumes/media6/" even
+            # though the full path is stored. Truncate at the HEAD instead so
+            # the filename — the most informative part — is always visible.
+            try:
+                from AppKit import NSLineBreakByTruncatingHead
+                self.cell().setLineBreakMode_(NSLineBreakByTruncatingHead)
+            except Exception:
+                pass
         return self
 
     def setDropTarget_action_(self, target, action):
