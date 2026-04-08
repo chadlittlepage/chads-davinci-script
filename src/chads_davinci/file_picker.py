@@ -306,7 +306,22 @@ class DropTextField(NSTextField):
         long it is or how the field is rendered. There is no code path
         in the picker that can set a path on this field without also
         setting the tooltip — drag, paste, Browse, preset load, settings
-        restore, _set_extras — they all funnel through this override."""
+        restore, _set_extras — they all funnel through this override.
+
+        Also strips surrounding whitespace and matched surrounding
+        quotes (single or double) so paths copied from a terminal
+        (e.g. `'/Users/x/My File.mov'`) Just Work without the user
+        having to manually trim them. Without this, a stray trailing
+        `'` makes the file invisible to mediainfo / ffprobe / Resolve."""
+        try:
+            text = str(value or "")
+            # Strip whitespace + any leading/trailing single or double quotes
+            # (handles `'/path/to.mov'`, stray trailing `'`, etc.).
+            stripped = text.strip().strip("'\"").strip()
+            if stripped != text:
+                value = stripped
+        except Exception:
+            pass
         objc.super(DropTextField, self).setStringValue_(value)
         try:
             text = str(value or "")

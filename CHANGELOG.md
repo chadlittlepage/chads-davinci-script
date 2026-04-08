@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.29] — 2026-04-08
+
+### Fixed
+
+- **Stray quotes around pasted file paths.** When you copy a path from
+  a terminal it often comes wrapped in quotes (`'/Users/.../foo.mov'`),
+  and a stray trailing `'` was enough to make the file invisible to
+  mediainfo / ffprobe / Resolve and trigger a phantom pre-flight
+  failure. `DropTextField.setStringValue_` now strips surrounding
+  whitespace and any leading/trailing single or double quotes before
+  storing the path. The quote-stripping happens at the central choke
+  point, so drag, paste, Browse, preset load, and settings restore
+  all benefit.
+
 ## [0.2.28] — 2026-04-08
 
 ### Fixed
