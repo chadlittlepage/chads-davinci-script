@@ -18,6 +18,12 @@ console = Console()
 def _run_applescript(script: str) -> str | None:
     """Run an AppleScript and return stdout, or None on failure.
 
+    Always decodes the subprocess output as UTF-8 with errors="replace".
+    This is critical inside py2app bundles where the default encoding is
+    ASCII (no LANG/LC_ALL set), so any non-ASCII byte in osascript's
+    output (em-dashes in Apple error messages, unicode quotes, etc.)
+    would otherwise crash _translate_newlines with a UnicodeDecodeError.
+
     If the failure is the macOS Accessibility permission denial (TCC error
     -1719), we return None silently — that path is non-fatal and would
     otherwise spam the console on every run.
@@ -25,11 +31,15 @@ def _run_applescript(script: str) -> str | None:
     try:
         result = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
         )
         if result.returncode == 0:
             return result.stdout.strip()
-        stderr = result.stderr.strip()
+        stderr = (result.stderr or "").strip()
         if "-1719" in stderr or "not allowed assistive access" in stderr:
             # Accessibility permission not granted. The build still works
             # without this; the playback frame rate just won't be auto-set.
@@ -38,6 +48,10 @@ def _run_applescript(script: str) -> str | None:
         return None
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         console.print(f"[yellow]AppleScript failed: {e}[/yellow]")
+        return None
+    except Exception as e:
+        # Defensive: never let an osascript wrapper bug crash the app.
+        console.print(f"[yellow]AppleScript wrapper exception: {e}[/yellow]")
         return None
 
 

@@ -80,9 +80,22 @@ def _log_tool_version_once(name: str, path: str) -> None:
 
 
 def _run_cmd(cmd: list[str]) -> str | None:
-    """Run a command and return stdout, or None on failure."""
+    """Run a command and return stdout, or None on failure.
+
+    Always decodes as UTF-8 with errors="replace" — py2app bundles ship
+    without LANG/LC_ALL, so the default Python encoding is ASCII and any
+    non-ASCII byte in mediainfo/ffprobe output would crash the
+    text-mode pipe in _translate_newlines.
+    """
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
         if result.returncode == 0:
             return result.stdout
     except (FileNotFoundError, subprocess.TimeoutExpired):

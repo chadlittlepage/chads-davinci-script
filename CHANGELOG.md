@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.11] — 2026-04-07
+
+### Fixed (the v0.2.1 UTF-8 bug, second movement)
+
+py2app bundles ship with no `LANG`/`LC_ALL` set, so the bundled
+Python defaults to **ASCII** for `subprocess.run(..., text=True)`.
+The moment any subprocess writes a non-ASCII byte (an em-dash in an
+osascript error, a unicode quote in a mediainfo tag, anything in
+`UTF-8`) Python crashes inside `_translate_newlines` with
+`UnicodeDecodeError: 'ascii' codec can't decode byte 0xe2 in position 9`.
+
+This is the same root cause as the v0.2.1 file-I/O fix, just on the
+other side of the encoding wall (subprocess pipes instead of file
+writes). v0.2.6's `sys.excepthook` caught the traceback in
+`console.log` so we could find this in seconds instead of guessing.
+
+Three-layer fix:
+
+1. **`build_main.py` startup** sets `LANG=en_US.UTF-8`,
+   `LC_ALL=en_US.UTF-8`, and `PYTHONIOENCODING=utf-8` on the process
+   environment as the very first thing in `main()`. This makes
+   the bundled interpreter's default subprocess decoding UTF-8 even
+   though py2app inherited an empty environment. Single point of
+   defense for all subprocess calls in the parent process.
+
+2. **Every `subprocess.run(..., text=True)`** in the codebase now
+   also explicitly passes `encoding="utf-8", errors="replace"` so
+   it can never fall back to the platform default. Patched in:
+   - `ui_automation._run_applescript` (the actual crash site)
+   - `metadata._run_cmd` (mediainfo + ffprobe)
+   - `diagnostics.log_tool_version`
+   - `diagnostics.capture_app_screenshot` (both window and full-screen)
+   - `diagnostics._bundled_tool_summary`
+   - `build_main.subprocess.run` for build_worker
+
+3. **`build_main` → `build_worker` subprocess** is now spawned with
+   an explicit `env={**os.environ, "PYTHONIOENCODING": "utf-8",
+   "LANG": "en_US.UTF-8"}` so the worker subprocess inherits a
+   UTF-8 locale even if the parent's startup env-setting raced
+   with anything else.
+
+Defense in depth: any one of those three layers would be enough to
+fix the bug. All three together mean no subprocess in the codebase
+can ever hit the ASCII trap again.
+
 ## [0.2.10] — 2026-04-07
 
 ### Fixed (root cause)
@@ -345,7 +390,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.11...HEAD
+[0.2.11]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.11
 [0.2.10]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.10
 [0.2.9]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.9
 [0.2.8]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.8

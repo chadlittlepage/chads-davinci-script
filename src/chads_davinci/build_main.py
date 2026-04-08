@@ -10,6 +10,7 @@ chad.littlepage@gmail.com
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -117,6 +118,14 @@ def _maybe_show_first_launch_welcome() -> None:
 
 def main() -> int:
     """Run the full build pipeline."""
+    # py2app bundles ship without LANG/LC_ALL set, so Python defaults to
+    # ASCII for subprocess pipes. Any non-ASCII byte from osascript /
+    # mediainfo / ffprobe / etc. would crash _translate_newlines with a
+    # UnicodeDecodeError. Force UTF-8 globally before anything else runs.
+    os.environ.setdefault("LANG", "en_US.UTF-8")
+    os.environ.setdefault("LC_ALL", "en_US.UTF-8")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
     # Set up console logging for crash reports
     try:
         from chads_davinci.console_log import setup_logging
@@ -335,7 +344,10 @@ def main() -> int:
         input=build_args,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=300,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "LANG": "en_US.UTF-8"},
     )
 
     if result.stdout:

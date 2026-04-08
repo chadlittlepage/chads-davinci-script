@@ -148,7 +148,11 @@ def log_tool_version(tool_name: str, tool_path: str | None) -> None:
     try:
         out = subprocess.run(
             [tool_path, flag],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
         )
         first_line = (out.stdout or out.stderr or "").splitlines()
         if first_line:
@@ -181,7 +185,8 @@ def capture_app_screenshot(target_path: Path | str) -> Path | None:
                     # -x = no sound (-l implies it but be explicit)
                     result = subprocess.run(
                         ["screencapture", "-l", str(window_number), "-o", "-x", str(target)],
-                        capture_output=True, text=True, timeout=10,
+                        capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=10,
                     )
                     if result.returncode == 0 and target.exists() and target.stat().st_size > 0:
                         return target
@@ -190,7 +195,8 @@ def capture_app_screenshot(target_path: Path | str) -> Path | None:
         # Fallback: full-screen capture (interactive screenshot would need user action)
         result = subprocess.run(
             ["screencapture", "-x", str(target)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
         )
         if result.returncode == 0 and target.exists() and target.stat().st_size > 0:
             return target
@@ -242,7 +248,8 @@ def _bundled_tool_summary(tool_name: str) -> str:
     arch = "?"
     try:
         out = subprocess.run(
-            ["file", str(p)], capture_output=True, text=True, timeout=3,
+            ["file", str(p)], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=3,
         )
         text = out.stdout.lower()
         if "universal" in text:
