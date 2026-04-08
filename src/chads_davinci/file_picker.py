@@ -643,11 +643,11 @@ class FilePickerController(NSObject):
                 db_list = _get_resolve_databases()
             except Exception:
                 db_list = []
-            AppHelper.callAfter(self._connectFinished, db_list, sender, win)
+            AppHelper.callAfter(self._connect_finished, db_list, sender, win)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _connectFinished(self, db_list, sender, win):
+    def _connect_finished(self, db_list, sender, win):
         """Main-thread callback after the background connect completes."""
         from AppKit import (
             NSNormalWindowLevel,
