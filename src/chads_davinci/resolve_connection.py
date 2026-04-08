@@ -8,7 +8,9 @@ chad.littlepage@gmail.com
 
 from __future__ import annotations
 
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,8 +28,52 @@ from chads_davinci.models import (
 console = Console()
 
 
+def _is_resolve_running() -> bool:
+    """Return True if DaVinci Resolve is currently running."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "Resolve"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _launch_resolve_and_wait(timeout_sec: int = 90) -> bool:
+    """Launch DaVinci Resolve.app and wait until its scripting API responds.
+
+    Returns True if Resolve is reachable before the timeout, False otherwise.
+    """
+    console.print("[yellow]DaVinci Resolve is not running — launching it...[/yellow]")
+    try:
+        subprocess.Popen(["open", "-a", "DaVinci Resolve"])
+    except Exception as e:
+        console.print(f"[red]Failed to launch DaVinci Resolve: {e}[/red]")
+        return False
+
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        time.sleep(2)
+        try:
+            import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
+            if dvr.scriptapp("Resolve") is not None:
+                console.print("[green]DaVinci Resolve is ready.[/green]")
+                return True
+        except Exception:
+            pass
+    return False
+
+
 def get_resolve() -> Any:
-    """Import and return the DaVinci Resolve scripting module."""
+    """Import and return the DaVinci Resolve scripting module.
+
+    If Resolve isn't already running, launch it automatically and wait for
+    the scripting API to come online.
+    """
     # macOS paths
     script_paths = [
         "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
@@ -42,15 +88,25 @@ def get_resolve() -> Any:
 
     try:
         import DaVinciResolveScript as dvr  # type: ignore[import-untyped]
-
-        resolve = dvr.scriptapp("Resolve")
-        if resolve is None:
-            console.print("[red]Could not connect to DaVinci Resolve. Is it running?[/red]")
-            raise SystemExit(1)
-        return resolve
     except ImportError:
         console.print("[red]DaVinci Resolve scripting module not found.[/red]")
         raise SystemExit(1)
+
+    resolve = dvr.scriptapp("Resolve")
+    if resolve is None:
+        # Auto-launch Resolve if not running, then retry
+        if not _is_resolve_running():
+            if _launch_resolve_and_wait():
+                resolve = dvr.scriptapp("Resolve")
+
+    if resolve is None:
+        console.print(
+            "[red]Could not connect to DaVinci Resolve after auto-launch. "
+            "Please open Resolve manually and try again.[/red]"
+        )
+        raise SystemExit(1)
+
+    return resolve
 
 
 @dataclass

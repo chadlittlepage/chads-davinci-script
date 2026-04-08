@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.22] — 2026-04-08
+
+### Added — auto-launch DaVinci Resolve
+
+If DaVinci Resolve isn't already running when you click Build, the app
+now launches it via `open -a "DaVinci Resolve"` and waits up to 90s for
+the scripting API to come online before proceeding. No more "Is Resolve
+running?" error.
+
 ## [0.2.21] — 2026-04-08
 
 ### Added — custom track name auto-routing

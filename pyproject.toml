@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chads-davinci-script"
-version = "0.2.21"
+version = "0.2.22"
 description = "Chad's DaVinci Script - Quad-view tool with native macOS Cocoa GUI"
 authors = [{name = "Chad Littlepage", email = "chad.littlepage@gmail.com"}]
 requires-python = ">=3.10"
