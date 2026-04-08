@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.17] — 2026-04-07
+
+### Added — image sequence support + comprehensive format documentation
+
+- **Image sequence detection.** When the user drags a single frame
+  from a numbered image sequence (DPX, TIFF, EXR, JPEG, PNG, etc.)
+  onto a track row, the metadata extractor now scans the parent
+  folder for sibling frames matching the same prefix + digit count
+  + extension and reports the **full sequence frame count** instead
+  of just the dropped file. The console.log shows the detected
+  pattern, e.g. `frame.[####].dpx (image sequence, 1200 frames)`.
+
+  Resolve's `MediaPool.ImportMedia` already auto-detects image
+  sequences when given a single frame, so the existing import path
+  works without changes — the sequence appears as ONE clip on the
+  V3-V6 quad tracks, not 1200 separate stills.
+
+- **`models.py`: comprehensive supported-format constants.**
+    - `SUPPORTED_VIDEO_EXTENSIONS` — every container format Resolve
+      can ingest: `.mov`, `.mp4`, `.m4v`, `.mkv`, `.avi`, `.webm`,
+      `.mxf`, `.ts`, `.m2t`, `.m2ts`, `.mts`, `.braw`, `.r3d`,
+      `.ari`, `.arx`, `.crm`, `.rmf`, `.dng`, `.cine`, `.3gp`,
+      `.vob`, `.ogv`
+    - `IMAGE_SEQUENCE_EXTENSIONS` — every image format that can
+      stand alone OR be part of a sequence: `.dpx`, `.tif`, `.tiff`,
+      `.exr`, `.jpg`, `.jpeg`, `.jp2`, `.j2k`, `.jpf`, `.jpx`,
+      `.png`, `.tga`, `.bmp`, `.hdr`, `.cin`
+    - `SUPPORTED_AUDIO_EXTENSIONS` — `.wav`, `.aif`, `.aiff`,
+      `.flac`, `.mp3`, `.m4a`, `.aac`
+    - `ALL_SUPPORTED_EXTENSIONS` — convenience union
+  - New helpers `is_image_sequence_format(path)` and
+    `detect_image_sequence(path)` for use throughout the app.
+
+- **In-app manual: SUPPORTED FILE FORMATS section** listing every
+  container, codec, image format, and audio format with brief
+  descriptions. Plus a new **WORKING WITH IMAGE SEQUENCES** section
+  explaining the "drag a single frame, Resolve auto-detects the
+  rest" workflow and what to do if a sequence isn't detected.
+
+- **Picker column header text** updated from
+  `"File (drag from Finder, paste, or Browse)"` →
+  `"File or first frame of an image sequence (drag, paste, or Browse)"`
+  so the new capability is discoverable from the picker UI.
+
+### Notes
+
+The picker still accepts ANY file extension (no filtering on
+drag-drop or Browse) — the lists above document what's *supported*,
+not what's *whitelisted*. If Resolve can read a format that isn't in
+the list, the picker will still let you import it.
+
 ## [0.2.16] — 2026-04-07
 
 ### Fixed
@@ -608,7 +659,8 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.16...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.17...HEAD
+[0.2.17]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.17
 [0.2.16]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.16
 [0.2.15]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.15
 [0.2.14]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.14

@@ -370,10 +370,24 @@ def print_metadata_comparison(
     """Extract and display a comparison table. Returns the (assignment, metadata) results."""
     results: list[tuple[TrackAssignment, FileMetadata]] = []
 
+    from chads_davinci.models import detect_image_sequence
+
     for assignment in assignments:
         if assignment.file_path is None:
             continue
-        console.print(f"Extracting metadata: [cyan]{assignment.file_path.name}[/cyan]")
+        # Detect image sequence (DPX, TIFF, EXR, JPEG, etc.) and report
+        # the FULL sequence frame count instead of just the dropped file.
+        seq = detect_image_sequence(assignment.file_path)
+        if seq:
+            frame_count, pattern = seq
+            console.print(
+                f"Extracting metadata: [cyan]{pattern}[/cyan] "
+                f"[dim](image sequence, {frame_count} frames)[/dim]"
+            )
+        else:
+            console.print(
+                f"Extracting metadata: [cyan]{assignment.file_path.name}[/cyan]"
+            )
         meta = extract_metadata(assignment.file_path, config)
         results.append((assignment, meta))
 

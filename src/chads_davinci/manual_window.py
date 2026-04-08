@@ -206,6 +206,74 @@ If you rename a bin (e.g. HW2 → FOO), the script automatically updates
 the track→bin mapping so files still go to the renamed bin.
 
 
+SUPPORTED FILE FORMATS
+The picker accepts ANY file Resolve can read — there is no extension
+filter on drag-drop or the Browse panel.
+
+Container formats (single video file):
+  • QuickTime / MPEG-4 — .mov, .mp4, .m4v, .mkv, .avi, .webm
+  • Broadcast / pro     — .mxf, .ts, .m2t, .m2ts, .mts
+  • Camera RAW / vendor:
+      .braw          Blackmagic RAW
+      .r3d           RED REDCODE RAW
+      .ari, .arx     ARRIRAW
+      .crm, .rmf     Canon Cinema RAW Light
+      .dng           CinemaDNG
+      .cine          Phantom Cine
+
+Codecs (carried inside the containers above):
+  • Apple ProRes (422, 422 HQ, 422 LT, 422 Proxy, 4444, 4444 XQ)
+  • Avid DNxHD, DNxHR
+  • H.264, H.265 / HEVC
+  • XAVC, XAVC-I, XAVC-S
+  • AVC-Intra, AVCHD
+  • MPEG-2 (XDCAM HD/EX), MPEG-4
+  • DV, DVCPRO, HDV
+  • Cineform (GoPro)
+  • Sony X-OCN
+
+Image sequences (each frame is a single file; Resolve treats the
+sequence as ONE clip on the timeline):
+  • .dpx        Digital Picture Exchange (SMPTE 268M)
+  • .tif, .tiff TIFF
+  • .exr        OpenEXR
+  • .jpg, .jpeg JPEG
+  • .jp2, .j2k  JPEG 2000
+  • .png        PNG
+  • .tga        Targa
+  • .bmp        Bitmap
+  • .hdr        Radiance HDR
+  • .cin        Cineon
+
+Audio (rarely used in this picker but supported by Resolve):
+  • .wav, .aif, .aiff, .flac, .mp3, .m4a, .aac
+
+
+WORKING WITH IMAGE SEQUENCES
+For DPX, TIFF, EXR, JPEG, etc. sequences:
+
+1. Drag a SINGLE FRAME from the sequence onto a track row (e.g.
+   "frame.0001.dpx"). Resolve auto-detects the rest of the sequence
+   in the same folder and imports the entire run as ONE clip.
+
+2. The metadata extraction automatically detects the sequence and
+   reports the total frame count + duration of the WHOLE sequence,
+   not just the dropped file.
+
+3. The console.log shows the detected pattern, e.g.
+   "Extracting metadata: frame.[####].dpx (image sequence, 1200 frames)"
+
+4. The sequence appears as one entry in the bin and as one clip on
+   the V3-V6 quad tracks, with the same transform math applied.
+
+If your sequence isn't being auto-detected, make sure:
+  • The frame numbers are zero-padded consistently (frame.0001 not
+    frame.1)
+  • All frames are in the SAME folder
+  • The naming pattern is consistent (same prefix, same digit count,
+    same extension)
+
+
 METADATA EXTRACTION
 The script bundles MediaInfo and ffprobe inside the .app — no install,
 no PATH config required.

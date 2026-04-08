@@ -1252,7 +1252,7 @@ def pick_files():
     content.addSubview_(col_h1)
     controller.upper_views.append(col_h1)
     col_h2 = _make_label(
-        "File (drag from Finder, paste, or Browse)",
+        "File or first frame of an image sequence (drag, paste, or Browse)",
         NSMakeRect(margin + label_w + 10, y, field_w, 18), bold=True, size=11
     )
     content.addSubview_(col_h2)

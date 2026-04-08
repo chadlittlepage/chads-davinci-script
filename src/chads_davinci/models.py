@@ -172,3 +172,120 @@ TRACK_BIN_MAP: dict[TrackRole, str] = {
     TrackRole.L1SHW_795_STRETCH_1500: "HWL15/Target_795",
     TrackRole.L1SHW_HDMI: "HWL15/Generic TV/HDMIScrambled",
 }
+
+
+# ---------------------------------------------------------------------------
+# Supported file formats
+# ---------------------------------------------------------------------------
+#
+# This list documents what Chad's DaVinci Script + DaVinci Resolve can
+# handle. The picker accepts ANY file extension (no filtering on the
+# drag-drop or Browse panel), so the source of truth is what Resolve's
+# scripting API can ingest, not what we whitelist.
+#
+# Container formats (single-file video):
+SUPPORTED_VIDEO_EXTENSIONS: set[str] = {
+    # QuickTime / MPEG-4 family
+    ".mov", ".mp4", ".m4v", ".mkv", ".avi", ".webm",
+    # Broadcast / pro container
+    ".mxf", ".ts", ".m2t", ".m2ts", ".mts",
+    # Camera RAW / vendor formats
+    ".braw",   # Blackmagic RAW
+    ".r3d",    # RED REDCODE RAW
+    ".ari", ".arx",  # ARRIRAW
+    ".crm", ".rmf",  # Canon Cinema RAW Light
+    ".dng",    # CinemaDNG
+    ".cine",   # Phantom Cine
+    # Other
+    ".3gp", ".vob", ".ogv",
+}
+
+# Image formats — each can be either a single still OR part of a sequence.
+# Resolve auto-detects sequences when you import a single frame from a
+# folder containing matching frames.
+IMAGE_SEQUENCE_EXTENSIONS: set[str] = {
+    ".dpx",         # Digital Picture Exchange (SMPTE 268M)
+    ".tif", ".tiff",
+    ".exr",         # OpenEXR
+    ".jpg", ".jpeg",
+    ".jp2", ".j2k", ".jpf", ".jpx",  # JPEG 2000
+    ".png",
+    ".tga",         # Targa
+    ".bmp",
+    ".hdr",         # Radiance HDR
+    ".cin",         # Cineon
+}
+
+# Supported audio (kept here for completeness; the picker is video-focused)
+SUPPORTED_AUDIO_EXTENSIONS: set[str] = {
+    ".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".aac",
+}
+
+# Convenience union of every extension Resolve can handle.
+ALL_SUPPORTED_EXTENSIONS: set[str] = (
+    SUPPORTED_VIDEO_EXTENSIONS
+    | IMAGE_SEQUENCE_EXTENSIONS
+    | SUPPORTED_AUDIO_EXTENSIONS
+)
+
+
+def is_image_sequence_format(file_path: Path) -> bool:
+    """Return True if the file's extension is an image format (i.e. it
+    might be part of a multi-frame sequence)."""
+    return file_path.suffix.lower() in IMAGE_SEQUENCE_EXTENSIONS
+
+
+def detect_image_sequence(file_path: Path) -> tuple[int, str] | None:
+    """If `file_path` looks like a single frame from a numbered image
+    sequence, return (frame_count, pattern_label) for the whole sequence.
+    Otherwise return None.
+
+    A "sequence" is detected by:
+    1. The file's extension is in IMAGE_SEQUENCE_EXTENSIONS
+    2. The filename contains at least one run of digits before the extension
+    3. There are 2+ files in the same folder with the same prefix +
+       same digit-run length + same extension
+
+    Example:
+        frame.0001.dpx → looks for frame.NNNN.dpx siblings
+        clip_v002_0-9239.tif → looks for clip_v002_0-NNNN.tif siblings
+    """
+    import re
+
+    if not is_image_sequence_format(file_path):
+        return None
+    if not file_path.exists():
+        return None
+
+    parent = file_path.parent
+    stem = file_path.stem
+    suffix = file_path.suffix.lower()
+
+    # Find the LAST run of digits in the stem — that's the frame number.
+    matches = list(re.finditer(r"\d+", stem))
+    if not matches:
+        return None
+    last = matches[-1]
+    digit_count = last.end() - last.start()
+    prefix = stem[: last.start()]
+    suffix_after = stem[last.end():]
+
+    # Build a regex that matches sibling frames
+    pattern = re.compile(
+        r"^" + re.escape(prefix) + r"\d{" + str(digit_count) + r"}"
+        + re.escape(suffix_after) + re.escape(suffix) + r"$",
+        re.IGNORECASE,
+    )
+
+    try:
+        siblings = [p for p in parent.iterdir() if pattern.match(p.name)]
+    except OSError:
+        return None
+
+    if len(siblings) < 2:
+        return None
+
+    pattern_label = (
+        f"{prefix}[{'#' * digit_count}]{suffix_after}{suffix}"
+    )
+    return (len(siblings), pattern_label)
