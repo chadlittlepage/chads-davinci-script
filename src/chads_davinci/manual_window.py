@@ -123,6 +123,14 @@ same way:
 All four route to HW2 300 nit. The matcher does NOT care how the
 keywords are separated — it only cares which keywords appear.
 
+PASTING PATHS WITH QUOTES (v0.2.29+)
+You can paste a file path that came wrapped in quotes — e.g.
+`'/Users/you/My File.mov'` from a terminal — and the picker will
+strip the surrounding single or double quotes for you. No need to
+manually trim. Drag, paste, Browse, preset load, and settings
+restore all funnel through the same quote-stripping logic.
+
+
 AUTO-LAUNCH DAVINCI RESOLVE (v0.2.22+)
 You no longer need to start DaVinci Resolve before clicking
 "Connect to Resolve" or "Build". If Resolve is not running, the
