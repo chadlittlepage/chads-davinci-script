@@ -18,6 +18,9 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 - **Drop a folder (or multi-file selection) → auto-route files to the
   right rows by filename pattern** (e.g. `*HW2*300nit*.mov` → HW2 300
   nit row, `*HDMI*` → L1SHW HDMI row, etc.). Six rows filled in one drag.
+- **Auto-launches DaVinci Resolve** if it isn't already running
+  (clicks "Connect to Resolve" or "Build" — script does the rest,
+  waits up to 90s for the scripting API, keeps the picker on top)
 - **Custom track names auto-route too** — rename a track to e.g.
   `Sony BVM-X300` and any file containing those tokens (separator-
   insensitive: `_`, `-`, space, `.` all work) will land on that row.

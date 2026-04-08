@@ -123,6 +123,15 @@ same way:
 All four route to HW2 300 nit. The matcher does NOT care how the
 keywords are separated — it only cares which keywords appear.
 
+AUTO-LAUNCH DAVINCI RESOLVE (v0.2.22+)
+You no longer need to start DaVinci Resolve before clicking
+"Connect to Resolve" or "Build". If Resolve is not running, the
+script launches it in the background, waits up to 90 seconds for
+the scripting API to come online, and keeps the picker on top
+throughout the boot. The connect work runs on a background thread
+so the UI never beachballs while you wait.
+
+
 CUSTOM TRACK NAMES (v0.2.21+)
 The auto-router also matches against your CUSTOMIZED track names.
 If you rename a track and your file names contain the new keywords,
