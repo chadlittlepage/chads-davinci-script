@@ -15,9 +15,12 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 ### File picker (Cocoa)
 - Native drag-and-drop with blue-outline drop target highlight
-- **Drop a folder → auto-route files to the right rows by filename
-  pattern** (e.g. `*HW2*300nit*.mov` → HW2 300 nit row, `*HDMI*` →
-  L1SHW HDMI row, etc.). Six rows filled in one drag.
+- **Drop a folder (or multi-file selection) → auto-route files to the
+  right rows by filename pattern** (e.g. `*HW2*300nit*.mov` → HW2 300
+  nit row, `*HDMI*` → L1SHW HDMI row, etc.). Six rows filled in one drag.
+- **Custom track names auto-route too** — rename a track to e.g.
+  `Sony BVM-X300` and any file containing those tokens (separator-
+  insensitive: `_`, `-`, space, `.` all work) will land on that row.
 - Drop a single frame from a DPX/TIFF/EXR/JPEG sequence — Resolve
   auto-imports the entire numbered sequence as one clip
 - 6 fixed quad-view track rows + dynamic **"+ Add Video Track"** for
