@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.10] — 2026-04-07
+
+### Fixed (root cause)
+- **AppleScript fallback for setting the playback frame rate left the
+  Project Settings modal dialog open, which blocked every subsequent
+  Resolve API call in the build_worker subprocess.** The exact failure
+  chain on macOS 15.7.3:
+
+  1. Parent calls `ctx.project.SetSetting("timelinePlaybackFrameRate", "23.976")`,
+     which returns falsy on this Resolve version.
+  2. Falls back to the UI-automation AppleScript.
+  3. AppleScript opens the Project Settings dialog and tries to set
+     the playback rate field to "23.976" — but the field is **already**
+     "23.976", so Resolve sees no change and leaves the **Save button
+     disabled**.
+  4. AppleScript blindly clicks "Save" anyway → no-op, **dialog stays
+     open**.
+  5. build_worker subprocess starts → calls `MediaPool.ImportMedia` →
+     **silently returns empty for every file** because Resolve has a
+     modal dialog blocking API calls.
+  6. Every import "fails", `create_quad_timeline` aborts with
+     "Failed to create timeline", and no markers are generated.
+
+  Two-layer fix:
+
+  **Layer 1 — `build_main.py`**: read the current playback frame rate
+  via `GetSetting()` BEFORE deciding whether to call the AppleScript.
+  If the value already matches what we want, skip the AppleScript
+  entirely. The dialog never opens; nothing to block. Then re-verify
+  via `GetSetting()` after `SetSetting()` and only fall back to the
+  AppleScript if Resolve's actual stored value still doesn't match.
+
+  **Layer 2 — `ui_automation.py`**: even if the AppleScript does run,
+  it now reads the enabled state of the Save button. If Save is
+  enabled (Resolve detected a change), click it. If Save is disabled
+  (no change to save), click Cancel instead. **Either way, the dialog
+  ALWAYS closes** before the script returns. Belt-and-suspenders
+  defensive `try`/`on error`/`Cancel` so the dialog can never be left
+  open even if the button-state read itself fails.
+
+### Fixed (defensive)
+- **`MediaPool.ImportMedia` retries via lower-level Resolve APIs.**
+  Even with the dialog issue fixed, `ImportMedia([path])` is known to
+  silently fail on filenames containing `<digits>-<digits>` patterns
+  (Resolve auto-detects them as image sequences). Add a
+  `_import_one_file()` helper that tries three API paths in order:
+  1. `MediaPool.ImportMedia([path])` — primary
+  2. `MediaStorage.AddItemListToMediaPool(path)` — path-based, no
+     sequence detection
+  3. `MediaPool.ImportMedia([{"FilePath": path}])` — dict form, forces
+     single-file mode
+
+  Each fallback is logged so a future tester report tells us in
+  `console.log` exactly which API path the file came in through.
+  `import_media_files` also now logs file size and explicit
+  file-not-found cases.
+
 ## [0.2.9] — 2026-04-07
 
 ### Code-path integrity hardening for file paths
@@ -288,7 +345,9 @@ First public-facing notarized release.
 - Loop variables no longer shadow the imported `field` from
   `dataclasses` in `file_picker.py`.
 
-[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/chadlittlepage/chads-davinci-script/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.10
+[0.2.9]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.9
 [0.2.8]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.8
 [0.2.7]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.7
 [0.2.6]: https://github.com/chadlittlepage/chads-davinci-script/releases/tag/v0.2.6

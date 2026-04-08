@@ -289,6 +289,54 @@ def _find_subfolder(parent_folder: Any, name: str) -> Any | None:
     return None
 
 
+def _import_one_file(media_pool: Any, media_storage: Any, file_str: str) -> Any | None:
+    """Try every Resolve API path for importing a single file. Returns the
+    new MediaPoolItem on success, None on failure.
+
+    Quirk: `MediaPool.ImportMedia([path])` sometimes silently auto-detects
+    files whose names end with a `<digits>-<digits>` pattern as the first
+    frame of an image sequence and refuses to import them. The lower-level
+    `MediaStorage.AddItemListToMediaPool([path])` doesn't trigger that
+    detection, so when the primary call returns empty we retry with it.
+    """
+    # Method 1: MediaPool.ImportMedia (the primary path)
+    try:
+        imported = media_pool.ImportMedia([file_str])
+        if imported and len(imported) > 0:
+            return imported[0]
+    except Exception as e:
+        console.print(f"  [yellow]ImportMedia raised: {e}[/yellow]")
+
+    # Method 2: MediaStorage.AddItemListToMediaPool (sequence-detection-free fallback)
+    if media_storage is not None:
+        try:
+            imported = media_storage.AddItemListToMediaPool(file_str)
+            if imported and len(imported) > 0:
+                console.print(
+                    "  [dim]ImportMedia returned empty; succeeded via "
+                    "MediaStorage.AddItemListToMediaPool fallback[/dim]"
+                )
+                return imported[0]
+        except Exception as e:
+            console.print(
+                f"  [yellow]AddItemListToMediaPool raised: {e}[/yellow]"
+            )
+
+    # Method 3: ImportMedia with a clip-info dict (forces single-file mode)
+    try:
+        imported = media_pool.ImportMedia([{"FilePath": file_str}])
+        if imported and len(imported) > 0:
+            console.print(
+                "  [dim]ImportMedia(list) returned empty; succeeded via "
+                "ImportMedia(dict) fallback[/dim]"
+            )
+            return imported[0]
+    except Exception as e:
+        console.print(f"  [yellow]ImportMedia(dict) raised: {e}[/yellow]")
+
+    return None
+
+
 def import_media_files(
     ctx: ResolveContext,
     assignments: list[TrackAssignment],
@@ -301,9 +349,24 @@ def import_media_files(
     media_pool = ctx.media_pool
     media_items: dict[TrackRole, Any] = {}
 
+    # MediaStorage is the lower-level "path-based" importer that bypasses
+    # ImportMedia's auto-sequence-detection quirk.
+    try:
+        media_storage = ctx.resolve.GetMediaStorage()
+    except Exception:
+        media_storage = None
+
     for assignment in assignments:
-        if assignment.file_path is None or not assignment.file_path.exists():
+        if assignment.file_path is None:
             continue
+        if not assignment.file_path.exists():
+            console.print(
+                f"  [red]Skipping (file does not exist): {assignment.file_path}[/red]"
+            )
+            continue
+
+        file_str = str(assignment.file_path)
+        size_mb = assignment.file_path.stat().st_size / (1024 * 1024)
 
         # Determine target bin for this track
         target_bin_path = TRACK_BIN_MAP.get(assignment.role, "")
@@ -315,22 +378,23 @@ def import_media_files(
             )
             target_folder = media_pool.GetRootFolder()
 
-        # Set current folder and import
-        file_str = str(assignment.file_path)
         media_pool.SetCurrentFolder(target_folder)
-        console.print(f"  [dim]Importing from: {file_str}[/dim]")
-        imported = media_pool.ImportMedia([file_str])
+        console.print(
+            f"  [dim]Importing ({size_mb:.0f} MB): {file_str}[/dim]"
+        )
 
-        if imported and len(imported) > 0:
-            media_items[assignment.role] = imported[0]
+        item = _import_one_file(media_pool, media_storage, file_str)
+        if item is not None:
+            media_items[assignment.role] = item
             bin_label = target_bin_path or "Master (root)"
             console.print(
-                f"  Imported: [cyan]{imported[0].GetName()}[/cyan] "
+                f"  Imported: [cyan]{item.GetName()}[/cyan] "
                 f"-> {assignment.role.value} [dim]({bin_label})[/dim]"
             )
         else:
             console.print(
-                f"  [red]Failed to import: {assignment.file_path.name}[/red]"
+                f"  [red]Failed to import (all 3 API paths returned empty): "
+                f"{assignment.file_path.name}[/red]"
             )
 
     return media_items

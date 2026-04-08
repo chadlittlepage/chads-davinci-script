@@ -256,11 +256,37 @@ def main() -> int:
         output_color_space=picker_result.output_color_space,
     )
 
-    # Step 4: Set playback frame rate via AppleScript before any timeline/clips
+    # Step 4: Set playback frame rate via AppleScript before any timeline/clips.
+    #
+    # IMPORTANT: only run the AppleScript fallback if the playback frame rate
+    # is genuinely different from what we want. If it already matches, calling
+    # the AppleScript would open Resolve's Project Settings dialog, try to
+    # "set" the same value (no-op), find the Save button disabled (because
+    # Resolve sees no change), and leave the modal dialog OPEN — which then
+    # blocks every subsequent API call (ImportMedia, AddTrack, etc.) in the
+    # build_worker subprocess. Symptom: every media import silently fails.
     console.print()
-    r_playback = ctx.project.SetSetting("timelinePlaybackFrameRate", picker_result.frame_rate)
-    if not r_playback:
-        set_playback_frame_rate(picker_result.frame_rate)
+    desired = str(picker_result.frame_rate)
+    current_playback = ""
+    try:
+        current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
+    except Exception:
+        pass
+    if current_playback == desired:
+        console.print(
+            f"  Playback frame rate already {desired} — skipping UI automation"
+        )
+    else:
+        r_playback = ctx.project.SetSetting("timelinePlaybackFrameRate", desired)
+        if not r_playback:
+            # Re-check after the SetSetting attempt — Resolve sometimes accepts
+            # the value but reports failure.
+            try:
+                current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
+            except Exception:
+                pass
+            if current_playback != desired:
+                set_playback_frame_rate(desired)
 
     # Step 5: Run bins/media/timeline in subprocess (fresh Resolve API connection)
     console.print()

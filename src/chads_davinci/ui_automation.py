@@ -44,8 +44,15 @@ def _run_applescript(script: str) -> str | None:
 def set_playback_frame_rate(frame_rate: str) -> bool:
     """Set the Playback frame rate in Project Settings via UI automation.
 
-    Opens Project Settings, sets the playback frame rate text field, and clicks Save.
-    This is necessary because the Resolve scripting API treats this setting as read-only.
+    Opens Project Settings, sets the playback frame rate text field, and
+    clicks Save. The script ALWAYS closes the dialog before returning —
+    if the value is unchanged (Save button disabled), it clicks Cancel
+    instead. Leaving the dialog open would block every subsequent
+    Resolve API call (ImportMedia, AddTrack, etc.) in the build_worker
+    subprocess and produce silent import failures.
+
+    This is necessary because some Resolve versions treat the playback
+    frame rate setting as read-only via the scripting API.
     """
     script = f'''
 tell application "DaVinci Resolve"
@@ -75,19 +82,45 @@ tell application "System Events"
                 delay 0.5
             end tell
 
-            -- Click Save to apply and close
-            click button "Save"
-            delay 0.5
+            -- Click Save if it is enabled (i.e. Resolve detected a change),
+            -- otherwise click Cancel. EITHER WAY, the dialog must close —
+            -- if it stays open it blocks every subsequent Resolve API call.
+            try
+                if enabled of button "Save" then
+                    click button "Save"
+                    delay 0.5
+                    return "SAVED"
+                else
+                    click button "Cancel"
+                    delay 0.5
+                    return "UNCHANGED"
+                end if
+            on error errMsg
+                -- Defensive: if anything goes sideways trying to read the
+                -- Save button state, force-close via Cancel so we never
+                -- leave a modal dialog blocking Resolve.
+                try
+                    click button "Cancel"
+                end try
+                return "ERROR:" & errMsg
+            end try
         end tell
     end tell
 end tell
-
-return "OK"
 '''
     result = _run_applescript(script)
-    if result == "OK":
+    if result == "SAVED":
         console.print(f"  Playback frame rate set to {frame_rate} (via UI automation)")
         return True
+    if result == "UNCHANGED":
+        console.print(
+            f"  Playback frame rate was already {frame_rate} — Project Settings closed via Cancel"
+        )
+        return True
+    if result and result.startswith("ERROR:"):
+        console.print(
+            f"  [yellow]UI automation hit an error, dialog closed via Cancel: {result[6:]}[/yellow]"
+        )
     # Silent fall-through: the timeline frame rate is already set via the
     # Resolve API, so the playback monitor will inherit it. The UI-automation
     # path is best-effort and only matters when Resolve's API treats
