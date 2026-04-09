@@ -20,13 +20,28 @@ from chads_davinci import __version__
 from chads_davinci.file_picker import pick_files
 from chads_davinci.metadata import print_metadata_comparison
 from chads_davinci.models import MetadataConfig
+from chads_davinci.ui_automation import set_playback_frame_rate
 from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
 )
-from chads_davinci.ui_automation import set_playback_frame_rate
 
 console = Console()
+
+# Feature flag — set to True to run the build phase inline in the
+# parent process instead of spawning a build_worker subprocess.
+#
+# DISABLED: The Resolve scripting API does NOT support two
+# `scriptapp("Resolve")` connections from the same Python process.
+# The second connection returns silently-failing stubs (bin creation
+# returns None, ImportMedia returns empty), breaking every build.
+# The subprocess pattern was implicitly working around this by giving
+# the build phase a fresh Python interpreter with no prior Resolve
+# state.
+#
+# Leaving the code path in place behind the flag in case a future
+# Resolve version lifts the limitation.
+INLINE_BUILD_WORKER = False
 
 BANNER = (
     "[bold]Chad's DaVinci Script[/bold] v{version}\n"
@@ -367,8 +382,6 @@ def main() -> int:
                     "Setting playback frame rate via Resolve UI…",
                     "Resolve will briefly show its Project Settings dialog",
                 )
-                # Hide the panel — it's about to be covered anyway and we
-                # don't want a half-visible mess on screen.
                 try:
                     progress.window.orderOut_(None)
                     progress.pump()
@@ -388,7 +401,7 @@ def main() -> int:
                         "Playback frame rate updated",
                     )
 
-    # Step 5: Run bins/media/timeline in subprocess (fresh Resolve API connection)
+    # Step 5: Run bins/media/timeline (fresh Resolve API connection)
     console.print()
     console.print("[dim]Launching fresh Resolve connection for build...[/dim]")
 
@@ -411,7 +424,7 @@ def main() -> int:
                 "comment": " | ".join(comment_parts),
             })
 
-    build_args = json.dumps({
+    build_args_dict = {
         "assignments": [
             {
                 "role": a.role.value,
@@ -428,64 +441,123 @@ def main() -> int:
         "source_resolution": picker_result.source_resolution,
         "timeline_markers": timeline_markers,
         "extras": picker_result.extras or [],
-    })
+    }
 
     if progress:
         progress.set_status("Building Resolve project…",
                             "Creating bins, importing media, building timeline")
 
-    # Use Popen + polling so the progress window keeps animating during the
-    # subprocess wait. A blocking subprocess.run would freeze the spinner.
     import time
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "chads_davinci.build_worker"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8", "LANG": "en_US.UTF-8"},
-    )
-    try:
-        proc.stdin.write(build_args)
-    finally:
+
+    if INLINE_BUILD_WORKER:
+        # Run the build phase in-process — saves the ~4s of Python
+        # subprocess startup. Output goes through the same logger so
+        # the per-line timestamps are still captured.
+        from chads_davinci.build_worker import run_build
         try:
-            proc.stdin.close()
+            run_build(build_args_dict)
+            returncode = 0
+        except Exception as e:
+            import traceback
+            console.print(f"[red]Inline build failed: {e}[/red]")
+            console.print(f"[red]{traceback.format_exc()}[/red]")
+            returncode = 1
+
+        if returncode != 0:
+            if progress:
+                progress.close()
+            _show_alert(
+                "Build failed",
+                "The Resolve build raised an exception.\n\n"
+                "Open Help → Export Console Log… to capture the details.",
+                critical=True,
+            )
+            return 1
+    else:
+        # Subprocess fallback — original isolation pattern. Use Popen
+        # + polling so the progress window keeps animating, AND stream
+        # stdout line-by-line so the parent log captures real per-line
+        # timestamps for diagnosing slow phases.
+        import select
+        build_args = json.dumps(build_args_dict)
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "chads_davinci.build_worker"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+            env={
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUNBUFFERED": "1",
+                "LANG": "en_US.UTF-8",
+            },
+        )
+        try:
+            proc.stdin.write(build_args)
+        finally:
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+
+        stderr_chunks: list[str] = []
+        deadline = time.time() + 600
+        while proc.poll() is None:
+            if time.time() > deadline:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                break
+            try:
+                ready, _, _ = select.select(
+                    [proc.stdout, proc.stderr], [], [], 0.05
+                )
+            except Exception:
+                ready = []
+            if proc.stdout in ready:
+                line = proc.stdout.readline()
+                if line:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+            if proc.stderr in ready:
+                line = proc.stderr.readline()
+                if line:
+                    stderr_chunks.append(line)
+            if progress:
+                progress.pump()
+
+        try:
+            for line in proc.stdout:
+                sys.stdout.write(line)
+            sys.stdout.flush()
+        except Exception:
+            pass
+        try:
+            for line in proc.stderr:
+                stderr_chunks.append(line)
         except Exception:
             pass
 
-    deadline = time.time() + 600  # 10 min hard cap
-    while proc.poll() is None:
-        if time.time() > deadline:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-            break
-        # Pump the runloop so the progress window animates and stays responsive.
-        if progress:
-            progress.pump()
-        time.sleep(0.05)
+        stderr = "".join(stderr_chunks)
+        returncode = proc.returncode if proc.returncode is not None else -1
 
-    stdout = proc.stdout.read() if proc.stdout else ""
-    stderr = proc.stderr.read() if proc.stderr else ""
-    returncode = proc.returncode if proc.returncode is not None else -1
-
-    if stdout:
-        console.print(stdout, end="")
-    if returncode != 0:
-        if stderr:
-            console.print(f"[red]{stderr}[/red]")
-        if progress:
-            progress.close()
-        _show_alert(
-            "Build failed",
-            "The Resolve build subprocess returned an error.\n\n"
-            "Open Help → Export Console Log… to capture the details.",
-            critical=True,
-        )
-        return 1
+        if returncode != 0:
+            if stderr:
+                console.print(f"[red]{stderr}[/red]")
+            if progress:
+                progress.close()
+            _show_alert(
+                "Build failed",
+                "The Resolve build subprocess returned an error.\n\n"
+                "Open Help → Export Console Log… to capture the details.",
+                critical=True,
+            )
+            return 1
 
     if progress:
         progress.set_status("Done!", "Switch to DaVinci Resolve to view the project")

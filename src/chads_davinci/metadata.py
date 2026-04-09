@@ -310,12 +310,81 @@ def merge_metadata(mi: FileMetadata, fp: FileMetadata) -> FileMetadata:
     return merged
 
 
+def _resolve_folder_to_first_frame(folder: Path) -> Path | None:
+    """If `folder` is a directory containing an image sequence, return
+    the path to ANY one frame so mediainfo / ffprobe have a real file
+    to read. Returns None if it's not a sequence folder.
+
+    Used by extract_metadata so passing a folder path (e.g. user dropped
+    a TIFF sequence folder onto a row) doesn't hang the tools for 30+
+    seconds trying to read a directory.
+    """
+    import os
+    sequence_exts = {
+        ".dpx", ".tif", ".tiff", ".exr", ".jpg", ".jpeg", ".jp2", ".j2k",
+        ".png", ".tga", ".bmp", ".hdr", ".cin", ".insp",
+    }
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                dot = name.rfind(".")
+                if dot < 1 or name[dot:].lower() not in sequence_exts:
+                    continue
+                if not name[dot - 1].isdigit():
+                    continue
+                try:
+                    if entry.is_file():
+                        return Path(entry.path)
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return None
+
+
+# Feature flag — set to False to disable parallel mediainfo+ffprobe
+# extraction and revert to the original sequential behavior.
+PARALLEL_METADATA_EXTRACTION = True
+
+
 def extract_metadata(file_path: Path, config: MetadataConfig) -> FileMetadata:
-    """Extract metadata using configured tools."""
+    """Extract metadata using configured tools.
+
+    If `file_path` points at a directory, transparently substitute the
+    first numbered image-sequence frame inside it. Without this, calling
+    mediainfo or ffprobe on a folder hangs for 30+ seconds while the
+    tools probe for what to do with the directory entry.
+
+    When both tools are enabled, runs them in parallel on a thread pool
+    so the per-file cost is `max(mi, fp)` instead of `mi + fp`.
+    """
+    if file_path.is_dir():
+        first_frame = _resolve_folder_to_first_frame(file_path)
+        if first_frame is not None:
+            file_path = first_frame
+        else:
+            # Folder with no frames inside — nothing to extract.
+            return FileMetadata(file_path=file_path)
+
     # extract_mediainfo / extract_ffprobe each call _resolve_tool() which is
     # cached after the first hit, so we don't pay the lookup cost per file.
-    mi_meta = extract_mediainfo(file_path) if config.use_mediainfo else None
-    fp_meta = extract_ffprobe(file_path) if config.use_ffprobe else None
+    if (
+        PARALLEL_METADATA_EXTRACTION
+        and config.use_mediainfo
+        and config.use_ffprobe
+    ):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_mi = ex.submit(extract_mediainfo, file_path)
+            f_fp = ex.submit(extract_ffprobe, file_path)
+            mi_meta = f_mi.result()
+            fp_meta = f_fp.result()
+    else:
+        mi_meta = extract_mediainfo(file_path) if config.use_mediainfo else None
+        fp_meta = extract_ffprobe(file_path) if config.use_ffprobe else None
 
     if mi_meta and fp_meta:
         return merge_metadata(mi_meta, fp_meta)
@@ -350,14 +419,33 @@ def _metadata_rows() -> list[tuple[str, callable]]:
 def print_metadata_comparison(
     assignments: list[TrackAssignment], config: MetadataConfig
 ) -> list[tuple[TrackAssignment, FileMetadata]]:
-    """Extract and display a comparison table. Returns the (assignment, metadata) results."""
+    """Extract and display a comparison table. Returns the (assignment, metadata) results.
+
+    De-duplicates extraction by file path: the typical workflow assigns
+    the same source file to all 6 tracks, and mediainfo + ffprobe over a
+    network volume can take ~2s per call. Running them once and reusing
+    the result for every row that points to the same path collapses a
+    12-second phase to ~2 seconds.
+    """
     results: list[tuple[TrackAssignment, FileMetadata]] = []
+    cache: dict[str, FileMetadata] = {}
 
     from chads_davinci.models import detect_image_sequence
 
     for assignment in assignments:
         if assignment.file_path is None:
             continue
+
+        cache_key = str(assignment.file_path)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            console.print(
+                f"Reusing metadata: [cyan]{assignment.file_path.name}[/cyan] "
+                f"[dim](already extracted)[/dim]"
+            )
+            results.append((assignment, cached))
+            continue
+
         # Detect image sequence (DPX, TIFF, EXR, JPEG, etc.) and report
         # the FULL sequence frame count instead of just the dropped file.
         seq = detect_image_sequence(assignment.file_path)
@@ -372,6 +460,7 @@ def print_metadata_comparison(
                 f"Extracting metadata: [cyan]{assignment.file_path.name}[/cyan]"
             )
         meta = extract_metadata(assignment.file_path, config)
+        cache[cache_key] = meta
         results.append((assignment, meta))
 
     if not results:

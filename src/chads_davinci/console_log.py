@@ -73,10 +73,18 @@ def _rotate_log_if_needed() -> None:
 
 
 class _Tee:
-    """File-like object that writes to multiple streams."""
+    """File-like object that writes to multiple streams.
 
-    def __init__(self, *streams):
+    The terminal stream(s) get the original bytes verbatim. The log file
+    stream gets a `[HH:MM:SS.mmm] ` prefix at the start of every line so
+    timing analysis is possible from an exported log without needing the
+    user to wall-clock-time anything.
+    """
+
+    def __init__(self, *streams, log_stream=None):
         self._streams = streams
+        self._log_stream = log_stream
+        self._log_at_line_start = True
 
     def write(self, data):
         for s in self._streams:
@@ -85,11 +93,41 @@ class _Tee:
                 s.flush()
             except Exception:
                 pass
+        if self._log_stream is not None:
+            self._write_log(data)
+
+    def _write_log(self, data):
+        try:
+            now = datetime.now()
+            ms = now.microsecond // 1000
+            stamp = now.strftime(f"[%H:%M:%S.{ms:03d}] ")
+            # Walk the chunk and prepend the timestamp at every line start.
+            i = 0
+            n = len(data)
+            while i < n:
+                if self._log_at_line_start:
+                    self._log_stream.write(stamp)
+                    self._log_at_line_start = False
+                nl = data.find("\n", i)
+                if nl == -1:
+                    self._log_stream.write(data[i:])
+                    break
+                self._log_stream.write(data[i:nl + 1])
+                self._log_at_line_start = True
+                i = nl + 1
+            self._log_stream.flush()
+        except Exception:
+            pass
 
     def flush(self):
         for s in self._streams:
             try:
                 s.flush()
+            except Exception:
+                pass
+        if self._log_stream is not None:
+            try:
+                self._log_stream.flush()
             except Exception:
                 pass
 
@@ -117,9 +155,9 @@ def setup_logging() -> None:
     log_file.write(f"{'=' * 70}\n")
     log_file.flush()
 
-    # Tee stdout/stderr to both original and log file
-    sys.stdout = _Tee(sys.__stdout__, log_file)
-    sys.stderr = _Tee(sys.__stderr__, log_file)
+    # Tee stdout/stderr to terminal verbatim AND timestamped to the log
+    sys.stdout = _Tee(sys.__stdout__, log_stream=log_file)
+    sys.stderr = _Tee(sys.__stderr__, log_stream=log_file)
 
 
 def get_log_path() -> Path:

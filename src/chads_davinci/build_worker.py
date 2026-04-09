@@ -22,11 +22,15 @@ from chads_davinci.models import TrackAssignment, TrackRole
 console = Console()
 
 
-def main() -> None:
-    """Read build args from stdin and execute bins/media/timeline operations."""
-    data = json.loads(sys.stdin.read())
+def run_build(data: dict) -> None:
+    """Execute the bins/media/timeline build phase from a parsed args dict.
 
-    # Reconstruct assignments
+    Same logic as the historical subprocess `main()` entry point — but
+    refactored as a free function so the parent process can call it
+    inline (saving the ~4s subprocess startup) when
+    `build_main.INLINE_BUILD_WORKER` is True.
+
+    Reconstruct assignments"""
     role_map = {r.value: r for r in TrackRole}
     assignments: list[TrackAssignment] = []
     for a in data["assignments"]:
@@ -127,6 +131,12 @@ def main() -> None:
 
     console.print()
     console.print("[green bold]Done![/green bold]")
+
+
+def main() -> None:
+    """Subprocess entry point — read JSON from stdin and run the build."""
+    data = json.loads(sys.stdin.read())
+    run_build(data)
 
 
 if __name__ == "__main__":

@@ -131,10 +131,13 @@ def _show_dialog(title: str, message: str) -> None:
 
     msg = message.replace('"', '\\"').replace('\n', '\\n')
     safe_title = title.replace('"', '\\"')
+    # `default button "OK"` makes Return dismiss the dialog without
+    # needing to mouse to the button.
     try:
         subprocess.run(
             ["osascript", "-e",
-             f'display dialog "{msg}" with title "{safe_title}" buttons {{"OK"}}'],
+             f'display dialog "{msg}" with title "{safe_title}" '
+             f'buttons {{"OK"}} default button "OK"'],
             capture_output=True,
             text=True,
             encoding="utf-8",

@@ -129,6 +129,19 @@ def get_resolve() -> Any:
         )
         raise SystemExit(1)
 
+    # Force the Edit page. The Cut page is dramatically slower for our
+    # build operations (timeline create, AppendToTimeline, AddTrack,
+    # InsertGenerator, transform application) on macOS 15 in particular,
+    # because the Cut page re-renders its full timeline preview on every
+    # API mutation. Switching to Edit before any of those calls is the
+    # cheapest way to make builds responsive there.
+    try:
+        if resolve.GetCurrentPage() != "edit":
+            resolve.OpenPage("edit")
+            console.print("[dim]Switched Resolve to the Edit page.[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Could not switch to Edit page: {e}[/yellow]")
+
     return resolve
 
 
@@ -194,17 +207,29 @@ def connect(
             console.print(f"Opened folder: [cyan]{folder_name}[/cyan]")
 
     if create_project:
-        project = pm.CreateProject(project_name)
+        # SAFETY: never silently delete a project that already exists.
+        # An earlier version of this code called DeleteProject on the
+        # conflict, which destroyed the user's open work if they had
+        # the same project loaded with unsaved changes. Instead we
+        # auto-bump the requested name with " (2)", " (3)", etc., until
+        # we find a free slot, and log the rename clearly.
+        requested_name = project_name
+        project = pm.CreateProject(requested_name)
         if project is None:
-            # Project already exists — delete it and create fresh
-            console.print(f"  Project '{project_name}' already exists, replacing...")
-            existing = pm.LoadProject(project_name)
-            if existing:
-                pm.CloseProject(existing)
-            pm.DeleteProject(project_name)
-            project = pm.CreateProject(project_name)
+            # Conflict — find a free name by appending " (N)".
+            for n in range(2, 1000):
+                candidate = f"{requested_name} ({n})"
+                project = pm.CreateProject(candidate)
+                if project is not None:
+                    console.print(
+                        f"[yellow]Project '{requested_name}' already exists; "
+                        f"created '{candidate}' instead so the existing project "
+                        f"is not touched.[/yellow]"
+                    )
+                    project_name = candidate
+                    break
         if project is None:
-            console.print(f"[red]Could not create project '{project_name}'[/red]")
+            console.print(f"[red]Could not create project '{requested_name}'[/red]")
             raise SystemExit(1)
     else:
         project = pm.GetCurrentProject()
@@ -368,6 +393,24 @@ def _find_subfolder(parent_folder: Any, name: str) -> Any | None:
     return None
 
 
+# Image-sequence file extensions Resolve auto-detects as numbered frames
+_IMAGE_SEQUENCE_EXTS = {
+    ".dpx", ".tif", ".tiff", ".exr", ".jpg", ".jpeg", ".jp2", ".j2k",
+    ".png", ".tga", ".bmp", ".hdr", ".cin", ".insp",
+}
+
+
+def _is_image_sequence_frame(file_str: str) -> bool:
+    """Heuristic: True if `file_str` looks like one frame of a numbered
+    image sequence (e.g. `frame_001234.tif`)."""
+    p = Path(file_str)
+    if p.suffix.lower() not in _IMAGE_SEQUENCE_EXTS:
+        return False
+    # Check that the filename ends in digits before the extension
+    stem = p.stem
+    return bool(stem) and stem[-1].isdigit()
+
+
 def _import_one_file(media_pool: Any, media_storage: Any, file_str: str) -> Any | None:
     """Try every Resolve API path for importing a single file. Returns the
     new MediaPoolItem on success, None on failure.
@@ -377,7 +420,29 @@ def _import_one_file(media_pool: Any, media_storage: Any, file_str: str) -> Any 
     frame of an image sequence and refuses to import them. The lower-level
     `MediaStorage.AddItemListToMediaPool([path])` doesn't trigger that
     detection, so when the primary call returns empty we retry with it.
+
+    Image-sequence speedup: when the input looks like a frame of a
+    numbered sequence, we hand the *folder* to MediaStorage first instead
+    of the first frame. This skips Resolve's "is this a sequence?"
+    auto-detection step (it knows it's a folder of frames) and is
+    measurably faster on large sequences.
     """
+    # Image-sequence fast path: pass the parent FOLDER directly to
+    # MediaStorage so Resolve doesn't have to walk the folder twice
+    # (once to detect, once to import).
+    if _is_image_sequence_frame(file_str) and media_storage is not None:
+        folder = str(Path(file_str).parent)
+        try:
+            imported = media_storage.AddItemListToMediaPool(folder)
+            if imported and len(imported) > 0:
+                # The first item is the sequence clip Resolve built.
+                return imported[0]
+        except Exception as e:
+            console.print(
+                f"  [yellow]Sequence fast-path AddItemListToMediaPool raised: "
+                f"{e} — falling back to per-file ImportMedia[/yellow]"
+            )
+
     # Method 1: MediaPool.ImportMedia (the primary path)
     try:
         imported = media_pool.ImportMedia([file_str])
@@ -435,6 +500,14 @@ def import_media_files(
     except Exception:
         media_storage = None
 
+    # De-dupe imports by file path. The typical workflow assigns the
+    # same source file (often a 30K-frame TIFF sequence) to all 6
+    # tracks. Without de-duping, Resolve re-scans the folder for every
+    # call to _import_one_file — 6 imports × ~5s each = 30s wasted.
+    # Importing each unique path ONCE and reusing the same MediaPoolItem
+    # for every track that points to it collapses that to one import.
+    cache: dict[str, Any] = {}
+
     for assignment in assignments:
         if assignment.file_path is None:
             continue
@@ -445,7 +518,6 @@ def import_media_files(
             continue
 
         file_str = str(assignment.file_path)
-        size_mb = assignment.file_path.stat().st_size / (1024 * 1024)
 
         # Determine target bin for this track
         target_bin_path = TRACK_BIN_MAP.get(assignment.role, "")
@@ -457,6 +529,19 @@ def import_media_files(
             )
             target_folder = media_pool.GetRootFolder()
 
+        cached = cache.get(file_str)
+        if cached is not None:
+            # Reuse the already-imported clip — no extra Resolve I/O.
+            media_items[assignment.role] = cached
+            bin_label = target_bin_path or "Master (root)"
+            console.print(
+                f"  Reused: [cyan]{cached.GetName()}[/cyan] "
+                f"-> {assignment.role.value} [dim]({bin_label}, "
+                f"already imported)[/dim]"
+            )
+            continue
+
+        size_mb = assignment.file_path.stat().st_size / (1024 * 1024)
         media_pool.SetCurrentFolder(target_folder)
         console.print(
             f"  [dim]Importing ({size_mb:.0f} MB): {file_str}[/dim]"
@@ -465,6 +550,7 @@ def import_media_files(
         item = _import_one_file(media_pool, media_storage, file_str)
         if item is not None:
             media_items[assignment.role] = item
+            cache[file_str] = item
             bin_label = target_bin_path or "Master (root)"
             console.print(
                 f"  Imported: [cyan]{item.GetName()}[/cyan] "

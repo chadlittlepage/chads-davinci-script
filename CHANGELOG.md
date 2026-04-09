@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.32] — 2026-04-08
+
+### Added — performance & safety pass
+
+- **DaVinci Resolve auto-switches to the Edit page** before any build
+  operation. The Cut page re-renders its full timeline preview on every
+  API mutation, dramatically slowing AppendToTimeline / AddTrack /
+  InsertGenerator on macOS 15. Edit page is the supported home for
+  the build flow.
+- **Image-sequence folder drop is now O(1).** Dropping a 40K-frame
+  TIFF/EXR/DPX folder onto a row used to enumerate every file with
+  `iterdir()`; the new `_find_first_sequence_frame()` peeks at one
+  `os.scandir` dirent and returns immediately. Folder drop is now
+  effectively instant regardless of frame count.
+- **Image-sequence import fast path.** When the input is a sequence
+  frame, the importer hands the parent folder to
+  `MediaStorage.AddItemListToMediaPool` so Resolve skips its
+  "is this a sequence?" auto-detection step.
+- **Import dedupe.** When the same source file (often a 30K-frame TIFF
+  sequence) is assigned to all 6 tracks, the importer now imports it
+  ONCE and reuses the same MediaPoolItem for every track. 28-second
+  import phase → ~5 seconds.
+- **Metadata extraction dedupe.** Same workflow: mediainfo + ffprobe
+  run once per unique source file, not once per row. 12-second
+  metadata phase → ~2 seconds.
+- **Parallel mediainfo + ffprobe** when both tools are enabled. Per-
+  file extraction time is now `max(mi, fp)` instead of `mi + fp`.
+- **`detect_image_sequence` switched from `iterdir()` to `os.scandir()`** —
+  ~20× faster on a 30K-frame network folder.
+- **Per-line timestamps in the console log** so phase timings are
+  visible from any exported log without needing wall-clock notes.
+  Format: `[HH:MM:SS.mmm] line`. Terminal output stays clean.
+- **Subprocess output streaming.** The build_worker subprocess output
+  is now drained line-by-line via `select()` during the polling loop
+  instead of read-all-at-end, so each phase line is timestamped at
+  the moment it actually arrived.
+- **Two-column tab navigation** in the picker (track names → file
+  paths → wrap). Implemented via both `setNextKeyView_` AND a
+  delegate `control:textView:doCommandBySelector:` intercept so it
+  works even when Cocoa's auto key view loop overrides the manual
+  wiring.
+- **Pasted file paths with surrounding quotes are stripped automatically.**
+  Copy `'/Users/.../foo.mov'` from a terminal and it Just Works.
+- **Image-sequence folder routing** — dropping a TIFF folder on the
+  picker background routes by the folder name (not per-frame names),
+  with first-frame fast-peek for routing decisions.
+- **Image-sequence folder dropped on a specific row** fills that row
+  with the first frame for manual sequence assignment.
+- **Folder paths defensively resolved to first frame** in
+  `extract_metadata` so mediainfo/ffprobe never hang for 30+ seconds
+  trying to read a directory entry.
+- **Connect to Resolve button color states** — blue while connecting,
+  green on success.
+
+### Safety
+
+- **`connect()` no longer silently deletes existing projects on name
+  conflict.** A previous version called `pm.DeleteProject()` to
+  "replace" the existing project, which destroyed unsaved work if
+  the user had it open. The new code auto-bumps the requested name
+  with " (2)", " (3)", etc. until it finds a free slot, and logs
+  the rename in yellow. Your existing work is never touched.
+
+### Fixed (macOS 15.7.4)
+
+- **Console export dialog OK button is now the default** so Return
+  dismisses without mousing to the button.
+- **Project Settings header has 36px breathing room below the
+  divider line** (was 20px and visually crossing the line).
+
+### Internal
+
+- `build_worker.run_build()` extracted from `main()` so the build
+  phase can run inline (behind `INLINE_BUILD_WORKER`, currently
+  disabled — Resolve API doesn't allow two `scriptapp("Resolve")`
+  connections from the same process).
+- Pre-warm Resolve at picker open exists behind
+  `PREWARM_RESOLVE_ON_PICKER_OPEN` (currently disabled — Resolve
+  splash screen activation behavior makes this confusing on
+  macOS 15).
+- Dead `_pump_runloop()` removed.
+- `preview_preset.py` dev tool calls the real `build_preset_row()`
+  helper so its output matches the live picker pixel-for-pixel.
+
 ## [0.2.31] — 2026-04-08
 
 ### Added

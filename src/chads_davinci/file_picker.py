@@ -201,6 +201,48 @@ def _get_resolve_databases() -> list[dict[str, str]]:
 _FILE_URL_UTI = "public.file-url"
 
 
+def _find_first_sequence_frame(folder: Path) -> Path | None:
+    """Return ANY numbered image-sequence frame from `folder`, or None
+    if the folder doesn't contain one.
+
+    Optimized for huge sequences (40K+ frames): returns as soon as the
+    FIRST matching frame is found via os.scandir, without enumerating
+    or stat-ing the rest of the folder. This is O(1) with respect to
+    folder size — typically completes in microseconds even for a folder
+    with hundreds of thousands of frames.
+
+    Why ANY frame is fine (not necessarily frame 1): Resolve's
+    sequence-detection walks backwards and forwards from whatever frame
+    you give it, so handing it frame 5000 produces the same imported
+    clip as handing it frame 1.
+    """
+    import os
+    from chads_davinci.models import IMAGE_SEQUENCE_EXTENSIONS
+
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                dot = name.rfind(".")
+                if dot < 1:
+                    continue
+                if name[dot:].lower() not in IMAGE_SEQUENCE_EXTENSIONS:
+                    continue
+                if not name[dot - 1].isdigit():
+                    continue
+                try:
+                    if not entry.is_file():
+                        continue
+                except OSError:
+                    continue
+                return Path(entry.path)
+    except OSError:
+        pass
+    return None
+
+
 def _file_paths_from_pasteboard(pasteboard) -> list[str]:
     """Extract ALL file paths from a drag pasteboard.
 
@@ -394,10 +436,28 @@ class DropTextField(NSTextField):
 
         path = paths[0]
 
-        # Folder drop: hand the folder to the controller's auto-router
-        # so it can scan the contents and fill all matching rows.
+        # Folder drop: special-case image-sequence folders dropped on a
+        # SPECIFIC row — fill THAT row with the first frame so the user
+        # can manually assign a sequence to a particular track. For
+        # non-sequence folders (or when no row context exists), hand the
+        # folder to the controller's auto-router.
+        #
+        # Performance: a TIFF/EXR/DPX sequence may contain 40K+ frames.
+        # Sorting + stat-checking every file would burn many seconds. We
+        # use _find_first_sequence_frame which scandir-peeks at most a
+        # few hundred filenames and returns as soon as it finds the
+        # alphabetically-first matching frame.
         try:
             if Path(path).is_dir():
+                first_frame = _find_first_sequence_frame(Path(path))
+
+                # Image-sequence folder dropped on a specific row → use
+                # the first frame as the row's value.
+                if first_frame is not None:
+                    self.setStringValue_(str(first_frame))
+                    return True
+
+                # Non-sequence folder → auto-route as before.
                 if self._drop_target and hasattr(
                     self._drop_target, "routeDroppedFolder_"
                 ):
@@ -525,7 +585,12 @@ class FilePickerController(NSObject):
                 names[role] = value
         return names
 
-    def _route_paths(self, candidates: list[Path], source_label: str) -> None:
+    def _route_paths(
+        self,
+        candidates: list[Path],
+        source_label: str,
+        route_label: str | None = None,
+    ) -> None:
         """Shared routing logic for routeDroppedFolder_ and
         routeMultipleFiles_. Given a list of candidate file Paths,
         route each one to a TrackRole by filename pattern and update
@@ -570,7 +635,10 @@ class FilePickerController(NSObject):
             if entry.suffix.lower() not in ALL_SUPPORTED_EXTENSIONS:
                 continue
             scanned += 1
-            role = route_filename_to_role(entry.name, custom_names=custom_names)
+            # When routing an image-sequence folder, the routing key is the
+            # FOLDER name (passed as `route_label`), not the per-frame name.
+            match_name = route_label if route_label is not None else entry.name
+            role = route_filename_to_role(match_name, custom_names=custom_names)
             if role is None or role in seen_roles or role not in self.path_fields:
                 continue
             seen_roles.add(role)
@@ -585,19 +653,88 @@ class FilePickerController(NSObject):
                 f"from {source_label}: {summary}"
             )
         else:
-            self._set_status(
-                f"No files from {source_label} matched a track pattern. "
-                f"Drop individual files instead, or rename them to include "
-                f"keywords like 'HW2', 'L1SHW', '300', '795', '1500', or 'HDMI'."
-            )
+            if route_label is not None:
+                # Image-sequence folder case — the routing key is the folder
+                # name, so the failure message points the user at renaming
+                # the folder OR dragging it onto a specific row instead of
+                # the picker background.
+                self._set_status(
+                    f"Image sequence folder '{route_label}' didn't match any "
+                    f"track keyword. Drag the folder onto a specific track row "
+                    f"to assign it manually, or rename the folder to include "
+                    f"a keyword like 'HW2', 'L1SHW', '300', '795', '1500', "
+                    f"'HDMI', or any custom track name you've set."
+                )
+            else:
+                self._set_status(
+                    f"No files from {source_label} matched a track pattern. "
+                    f"Drop individual files instead, or rename them to include "
+                    f"keywords like 'HW2', 'L1SHW', '300', '795', '1500', or 'HDMI'."
+                )
+
+    def control_textView_doCommandBySelector_(self, control, text_view, command):
+        """NSTextField delegate hook — intercept Tab / Shift-Tab so the
+        cursor walks our two-column key view loop (all track names →
+        all file paths → wrap) instead of Cocoa's heuristic order.
+
+        Returns True when we've handled the command (Cocoa stops
+        processing); False otherwise so default behavior continues.
+        """
+        try:
+            sel_name = str(command) if command is not None else ""
+        except Exception:
+            sel_name = ""
+        if sel_name not in ("insertTab:", "insertBacktab:"):
+            return False
+
+        forward = sel_name == "insertTab:"
+        chain = (
+            [self.name_fields[r] for r in SELECTABLE_TRACKS]
+            + [self.path_fields[r] for r in SELECTABLE_TRACKS]
+        )
+        try:
+            idx = chain.index(control)
+        except ValueError:
+            return False
+
+        if forward:
+            nxt = chain[(idx + 1) % len(chain)]
+        else:
+            nxt = chain[(idx - 1) % len(chain)]
+
+        try:
+            self.window.makeFirstResponder_(nxt)
+        except Exception:
+            return False
+        return True
 
     def routeDroppedFolder_(self, folder_path):
         """Auto-fill picker rows by scanning a dropped folder for video
         files and matching each one to a track role by filename pattern.
-        Delegates to _route_paths for the actual routing."""
+
+        Special-cases image-sequence folders: if the folder contains image
+        files with numbered suffixes, treat the whole folder as ONE clip
+        and route by the FOLDER name (because individual frame names like
+        `Anthem_0086328.tif` will never match track keywords). The first
+        frame's path is used as the field value; downstream import will
+        hand the parent folder to MediaStorage.AddItemListToMediaPool so
+        Resolve gets a single sequence clip.
+
+        Performance: peeks via _find_first_sequence_frame instead of
+        iterating + sorting every file (a 40K-frame sequence would
+        otherwise take ~10s of seconds to scan).
+        """
         folder = Path(str(folder_path))
         if not folder.is_dir():
             return
+
+        # Image-sequence fast path — peek at filenames, no full enumeration.
+        first_frame = _find_first_sequence_frame(folder)
+        if first_frame is not None:
+            self._route_paths([first_frame], folder.name, route_label=folder.name)
+            return
+
+        # Non-sequence folder: enumerate normally and route per-file.
         try:
             entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
         except OSError as e:
@@ -638,6 +775,13 @@ class FilePickerController(NSObject):
         self.connect_status.setStringValue_("Connecting...")
         self.connect_status.setTextColor_(NSColor.grayColor())
         sender.setEnabled_(False)
+        # Tint the button BLUE while the connect is in flight, then
+        # GREEN on success in _connect_finished. Falls back gracefully
+        # on macOS versions that don't support setBezelColor_.
+        try:
+            sender.setBezelColor_(NSColor.systemBlueColor())
+        except Exception:
+            pass
 
         win = self.window if hasattr(self, "window") else sender.window()
         self._connect_prior_level = None
@@ -707,6 +851,16 @@ class FilePickerController(NSObject):
 
         sender.setEnabled_(True)
         sender.setTitle_("Refresh")
+        # Tint GREEN once we have a working connection (regardless of
+        # whether the DB list came back empty — `resolve_connected` is
+        # True in both branches above).
+        try:
+            if self.resolve_connected:
+                sender.setBezelColor_(NSColor.systemGreenColor())
+            else:
+                sender.setBezelColor_(None)
+        except Exception:
+            pass
 
     def dbTypeChanged_(self, sender):
         """Database type dropdown changed — re-filter database list."""
@@ -1548,6 +1702,52 @@ def _make_textfield(text, frame):
     return field
 
 
+# Feature flag — set to True to pre-warm DaVinci Resolve in the
+# background when the picker opens.
+#
+# DISABLED: Resolve's borderless splash steals focus from the picker
+# during boot even when launched with `open -g` and even with active
+# re-foregrounding. The behavior was confusing — the user opened the
+# app and Resolve jumped in front. Now Resolve only launches when the
+# user explicitly clicks Connect to Resolve or Build.
+PREWARM_RESOLVE_ON_PICKER_OPEN = False
+
+
+def _prewarm_resolve_in_background() -> None:
+    """Kick off `open -g -a "DaVinci Resolve"` if Resolve isn't already
+    running, then keep our own app foregrounded for ~10 seconds while
+    Resolve boots so its borderless splash screen doesn't steal focus
+    from the picker.
+
+    Skipped entirely if Resolve is already running — does NOT touch the
+    user's open project, only launches the app binary if needed.
+    """
+    import subprocess
+    import threading
+    import time
+    from chads_davinci.resolve_connection import _is_resolve_running, _reactivate_self
+
+    def _bg():
+        try:
+            if _is_resolve_running():
+                return
+            subprocess.Popen(["open", "-g", "-a", "DaVinci Resolve"])
+        except Exception:
+            return
+        # Periodically pull focus back from Resolve while it boots —
+        # Resolve activates itself even with `open -g`. We re-fore-
+        # ground every 0.5s for up to 12 seconds (typical cold-launch
+        # window) and then stop.
+        for _ in range(24):
+            time.sleep(0.5)
+            try:
+                _reactivate_self()
+            except Exception:
+                pass
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+
 def pick_files():
     """Show the native Cocoa file picker. Returns PickerResult or None."""
     app = NSApplication.sharedApplication()
@@ -1559,6 +1759,7 @@ def pick_files():
         setup_menu_bar()
     except Exception:
         pass
+
 
     controller = FilePickerController.alloc().init()
 
@@ -1578,6 +1779,13 @@ def pick_files():
     )
     window.setTitle_("Chad's DaVinci Script - File Assignment")
     window.center()
+    # Cocoa's default key-view loop auto-recalc would stomp on our manual
+    # nextKeyView wiring (track names cycle → file paths cycle), so turn
+    # it off and let our explicit wiring be the source of truth.
+    try:
+        window.setAutorecalculatesKeyViewLoop_(False)
+    except Exception:
+        pass
     controller.window = window
 
     # Load saved user settings (or empty dict if none)
@@ -1718,6 +1926,30 @@ def pick_files():
             content.addSubview_(opt_label)
 
         y -= row_h
+
+    # Wire up two-column tab navigation. We use TWO mechanisms together
+    # so the chain is honored regardless of Cocoa version quirks:
+    #
+    #   1. setNextKeyView — the standard wiring, sufficient on most
+    #      macOS versions but ignored by some macOS 15.x builds when
+    #      the field editor decides which view gets focus next.
+    #   2. Delegate intercept — controller.control_textView_doCommandBySelector_
+    #      catches insertTab: / insertBacktab: and manually calls
+    #      makeFirstResponder on the next field in our explicit list.
+    #
+    # Loop order: name1 → name2 → ... → nameN → path1 → path2 → ...
+    #             pathN → wrap to name1.
+    name_field_list = [controller.name_fields[r] for r in SELECTABLE_TRACKS]
+    path_field_list = [controller.path_fields[r] for r in SELECTABLE_TRACKS]
+    if name_field_list and path_field_list:
+        for i, fld in enumerate(name_field_list):
+            nxt = name_field_list[i + 1] if i + 1 < len(name_field_list) else path_field_list[0]
+            fld.setNextKeyView_(nxt)
+            fld.setDelegate_(controller)
+        for i, fld in enumerate(path_field_list):
+            nxt = path_field_list[i + 1] if i + 1 < len(path_field_list) else name_field_list[0]
+            fld.setNextKeyView_(nxt)
+            fld.setDelegate_(controller)
 
     y -= 10
 
@@ -2002,6 +2234,14 @@ def pick_files():
 
     window.makeKeyAndOrderFront_(None)
     NSApp.activateIgnoringOtherApps_(True)
+
+    # Pre-warm Resolve in the background AFTER the picker window is on
+    # screen — that way the active re-foregrounding inside
+    # _prewarm_resolve_in_background has a real window to keep on top
+    # while Resolve's splash boots. See PREWARM_RESOLVE_ON_PICKER_OPEN.
+    if PREWARM_RESOLVE_ON_PICKER_OPEN:
+        _prewarm_resolve_in_background()
+
     NSApp.run()
 
     return controller.result
