@@ -48,6 +48,21 @@ from chads_davinci.models import (
     TrackAssignment,
     TrackRole,
 )
+from chads_davinci.theme import (
+    BG_DARK, BG_DARK_CG, BG_PANEL, FIELD_BG, FIELD_BG_CG,
+    GREEN, RED, SEPARATOR_CG, TEXT_DIM, TEXT_WHITE,
+)
+
+# Module-level reference to the active picker controller. Used by menu
+# handlers (e.g. Quadrant Settings) to read the picker's current form
+# state without having to reach through NSApp's window hierarchy.
+_CURRENT_CONTROLLER = None
+
+
+def get_current_controller():
+    """Return the active FilePickerController, or None if the picker
+    hasn't been shown this session."""
+    return _CURRENT_CONTROLLER
 
 # Single module-level Console reused by every hot-path call site
 # (drag-drop, _set_file, etc.) instead of instantiating per-event.
@@ -773,13 +788,13 @@ class FilePickerController(NSObject):
         from PyObjCTools import AppHelper
 
         self.connect_status.setStringValue_("Connecting...")
-        self.connect_status.setTextColor_(NSColor.grayColor())
+        self.connect_status.setTextColor_(TEXT_DIM)
         sender.setEnabled_(False)
         # Tint the button BLUE while the connect is in flight, then
         # GREEN on success in _connect_finished. Falls back gracefully
         # on macOS versions that don't support setBezelColor_.
         try:
-            sender.setBezelColor_(NSColor.systemBlueColor())
+            sender.setBezelColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(0.0, 0.478, 1.0, 1.0))
         except Exception:
             pass
 
@@ -789,7 +804,7 @@ class FilePickerController(NSObject):
             self._connect_prior_level = win.level()
             win.setLevel_(NSScreenSaverWindowLevel)
             win.makeKeyAndOrderFront_(None)
-            NSApp.activateIgnoringOtherApps_(True)
+            (NSApp.activate() if hasattr(NSApp, "activate") else NSApp.activateIgnoringOtherApps_(True))
             win.display()
             NSRunLoop.currentRunLoop().runUntilDate_(
                 NSDate.dateWithTimeIntervalSinceNow_(0.05)
@@ -822,7 +837,7 @@ class FilePickerController(NSObject):
         try:
             win.setLevel_(NSScreenSaverWindowLevel)
             win.makeKeyAndOrderFront_(None)
-            NSApp.activateIgnoringOtherApps_(True)
+            (NSApp.activate() if hasattr(NSApp, "activate") else NSApp.activateIgnoringOtherApps_(True))
             win.display()
             NSRunLoop.currentRunLoop().runUntilDate_(
                 NSDate.dateWithTimeIntervalSinceNow_(0.1)
@@ -837,7 +852,7 @@ class FilePickerController(NSObject):
             self.connect_status.setStringValue_(
                 "Connected (no DB list, defaulting to Local Database)"
             )
-            self.connect_status.setTextColor_(NSColor.orangeColor())
+            self.connect_status.setTextColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(0.90, 0.78, 0.10, 1.0))
             self.resolve_connected = True
             self.db_name_popup.removeAllItems()
             self.db_name_popup.addItemWithTitle_("Local Database")
@@ -846,7 +861,7 @@ class FilePickerController(NSObject):
             self.connect_status.setStringValue_(
                 f"Connected ({len(self.db_list)} database(s) found)"
             )
-            self.connect_status.setTextColor_(NSColor.systemGreenColor())
+            self.connect_status.setTextColor_(GREEN)
             self._filter_databases()
 
         sender.setEnabled_(True)
@@ -856,7 +871,7 @@ class FilePickerController(NSObject):
         # True in both branches above).
         try:
             if self.resolve_connected:
-                sender.setBezelColor_(NSColor.systemGreenColor())
+                sender.setBezelColor_(GREEN)
             else:
                 sender.setBezelColor_(None)
         except Exception:
@@ -1124,6 +1139,8 @@ class FilePickerController(NSObject):
 
         name_field = _make_textfield(name_text or f"Extra {len(self.extras) + 1}",
                                      NSMakeRect(margin, y, label_w, 24))
+        name_field.setTarget_(self)
+        name_field.setAction_("extraNameFieldChanged:")
 
         path_field = DropTextField.alloc().initWithFrame_(
             NSMakeRect(margin + label_w + 10, y, field_w, 24)
@@ -1132,6 +1149,8 @@ class FilePickerController(NSObject):
         path_field.setBezelStyle_(NSTextFieldRoundedBezel)
         path_field.setBezeled_(True)
         path_field.setEditable_(True)
+        path_field.setBackgroundColor_(FIELD_BG)
+        path_field.setTextColor_(TEXT_WHITE)
         path_field.setPlaceholderString_("Drop file here or click Browse")
         path_field.setTarget_(self)
         path_field.setAction_("extraPathFieldChanged:")
@@ -1191,6 +1210,7 @@ class FilePickerController(NSObject):
 
     def addExtraTrackClicked_(self, sender):
         self._add_extra_row()
+        self._notify_quadrant_dialog()
 
     def deleteExtraTrackClicked_(self, sender):
         tag = int(sender.tag())
@@ -1215,6 +1235,7 @@ class FilePickerController(NSObject):
             f = v.frame()
             v.setFrameOrigin_((f.origin.x, f.origin.y - delta))
         self._layout_extras()
+        self._notify_quadrant_dialog()
 
     def extraBrowseClicked_(self, sender):
         tag = int(sender.tag())
@@ -1238,6 +1259,10 @@ class FilePickerController(NSObject):
     def extraPathFieldChanged_(self, sender):
         # No-op: value is read directly from the field at submit time.
         return
+
+    def extraNameFieldChanged_(self, sender):
+        """Extra track name changed — push to the Quadrant Settings dialog."""
+        self._notify_quadrant_dialog()
 
     def _clear_extras(self):
         """Remove all extra rows (no resize/shift; caller handles)."""
@@ -1276,6 +1301,17 @@ class FilePickerController(NSObject):
             out.append({"name": name, "file_path": path or None})
         return out
 
+    def _notify_quadrant_dialog(self):
+        """If the Quadrant Settings dialog is open, push current extras to it
+        so the track list stays in sync as the user adds/removes tracks."""
+        try:
+            from chads_davinci.quadrant_settings import get_current_dialog
+            dlg = get_current_dialog()
+            if dlg is not None:
+                dlg.refresh_from_picker(self._capture_extras())
+        except Exception:
+            pass
+
     def _apply_settings(self, d):
         """Apply a settings dict to all form controls."""
         track_names = d.get("track_names") or {}
@@ -1311,10 +1347,12 @@ class FilePickerController(NSObject):
         from chads_davinci.settings_io import DEFAULT_SETTINGS, reset_user_settings
         reset_user_settings()
         self.bin_roots = None
+        self._set_extras([])  # remove any extra tracks
         self._apply_settings(DEFAULT_SETTINGS)
+        self._notify_quadrant_dialog()
         if self.status_label:
             self.status_label.setStringValue_("Reset to factory defaults")
-            self.status_label.setTextColor_(NSColor.systemGreenColor())
+            self.status_label.setTextColor_(GREEN)
 
     def _refresh_preset_popup(self, select=None):
         from chads_davinci.settings_io import load_presets
@@ -1339,10 +1377,11 @@ class FilePickerController(NSObject):
             self._apply_settings(presets[name])
             if self.status_label:
                 self.status_label.setStringValue_(f"Loaded preset: {name}")
-                self.status_label.setTextColor_(NSColor.systemGreenColor())
+                self.status_label.setTextColor_(GREEN)
 
     def savePresetClicked_(self, sender):
         from chads_davinci.settings_io import load_presets, save_preset
+        from chads_davinci.theme import apply_dark_appearance
         alert = NSAlert.alloc().init()
         alert.setMessageText_("Save Preset")
         alert.setInformativeText_("Enter a name for this preset:")
@@ -1356,6 +1395,7 @@ class FilePickerController(NSObject):
         if self.preset_popup and self.preset_popup.indexOfSelectedItem() > 0:
             input_field.setStringValue_(str(self.preset_popup.titleOfSelectedItem()))
         alert.setAccessoryView_(input_field)
+        apply_dark_appearance(alert.window())
         if alert.runModal() != NSAlertFirstButtonReturn:
             return
         name = str(input_field.stringValue()).strip()
@@ -1366,16 +1406,18 @@ class FilePickerController(NSObject):
             confirm.setMessageText_(f'Overwrite preset "{name}"?')
             confirm.addButtonWithTitle_("Overwrite")
             confirm.addButtonWithTitle_("Cancel")
+            apply_dark_appearance(confirm.window())
             if confirm.runModal() != NSAlertFirstButtonReturn:
                 return
         save_preset(name, self._capture_form_settings())
         self._refresh_preset_popup(select=name)
         if self.status_label:
             self.status_label.setStringValue_(f"Saved preset: {name}")
-            self.status_label.setTextColor_(NSColor.systemGreenColor())
+            self.status_label.setTextColor_(GREEN)
 
     def deletePresetClicked_(self, sender):
         from chads_davinci.settings_io import delete_preset
+        from chads_davinci.theme import apply_dark_appearance
         if not self.preset_popup or self.preset_popup.indexOfSelectedItem() <= 0:
             return
         name = str(self.preset_popup.titleOfSelectedItem())
@@ -1383,13 +1425,14 @@ class FilePickerController(NSObject):
         confirm.setMessageText_(f'Delete preset "{name}"?')
         confirm.addButtonWithTitle_("Delete")
         confirm.addButtonWithTitle_("Cancel")
+        apply_dark_appearance(confirm.window())
         if confirm.runModal() != NSAlertFirstButtonReturn:
             return
         delete_preset(name)
         self._refresh_preset_popup()
         if self.status_label:
             self.status_label.setStringValue_(f"Deleted preset: {name}")
-            self.status_label.setTextColor_(NSColor.systemGreenColor())
+            self.status_label.setTextColor_(GREEN)
 
     def _capture_form_settings(self) -> dict:
         """Snapshot current form state into a settings dict."""
@@ -1461,21 +1504,21 @@ class FilePickerController(NSObject):
         _module_console.print(f"[yellow]Picker status: {msg}[/yellow]")
         if self.status_label:
             self.status_label.setStringValue_(msg)
-            self.status_label.setTextColor_(NSColor.systemRedColor())
+            self.status_label.setTextColor_(RED)
 
     def _set_status_ok(self, msg):
         """Green confirmation message in the status bar (informational, not error)."""
         _module_console.print(f"[green]Picker status: {msg}[/green]")
         if self.status_label:
             self.status_label.setStringValue_(msg)
-            self.status_label.setTextColor_(NSColor.systemGreenColor())
+            self.status_label.setTextColor_(GREEN)
 
     def _set_status_info(self, msg):
         """Plain informational status (gray). Used during pre-flight."""
         _module_console.print(f"[dim]Picker status: {msg}[/dim]")
         if self.status_label:
             self.status_label.setStringValue_(msg)
-            self.status_label.setTextColor_(NSColor.secondaryLabelColor())
+            self.status_label.setTextColor_(TEXT_DIM)
 
     # ----- Pre-flight validation ------------------------------------------
 
@@ -1579,38 +1622,28 @@ class FilePickerController(NSObject):
             "volume is unmounted.\n\nContinue with the build anyway?"
         )
 
-        def _esc(s: str) -> str:
-            return (
-                s.replace("\\", "\\\\")
-                .replace('"', '\\"')
-                .replace("\n", "\\r")
-            )
-
         title = "Pre-flight check found possible issues"
-        script = (
-            f'display dialog "{_esc(body)}" '
-            f'with title "{_esc(title)}" '
-            f'buttons {{"Cancel", "Continue Anyway"}} '
-            f'default button "Cancel" '
-            f'cancel button "Cancel" '
-            f'with icon caution'
-        )
         try:
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=300,
-            )
+            from AppKit import NSAlert, NSAlertStyleWarning, NSAppearance, NSAlertSecondButtonReturn
+            alert = NSAlert.alloc().init()
+            alert.setMessageText_(title)
+            alert.setInformativeText_(body)
+            alert.setAlertStyle_(NSAlertStyleWarning)
+            alert.addButtonWithTitle_("Cancel")
+            alert.addButtonWithTitle_("Continue Anyway")
+            try:
+                dark = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+                if dark is not None:
+                    alert.window().setAppearance_(dark)
+            except Exception:
+                pass
+            response = alert.runModal()
+            return response == NSAlertSecondButtonReturn
         except Exception as e:
             _module_console.print(
                 f"[yellow]Pre-flight dialog failed: {e}[/yellow]"
             )
             return True  # don't block the user if the dialog itself broke
-
-        return result.returncode == 0 and "Continue Anyway" in (result.stdout or "")
 
 
 # ---------------------------------------------------------------------------
@@ -1625,6 +1658,7 @@ def _make_label(text, frame, bold=False, size=13.0):
     label.setDrawsBackground_(False)
     label.setEditable_(False)
     label.setSelectable_(False)
+    label.setTextColor_(TEXT_WHITE)
     if bold:
         label.setFont_(NSFont.boldSystemFontOfSize_(size))
     else:
@@ -1699,6 +1733,8 @@ def _make_textfield(text, frame):
     field.setBezelStyle_(NSTextFieldRoundedBezel)
     field.setBezeled_(True)
     field.setEditable_(True)
+    field.setBackgroundColor_(FIELD_BG)
+    field.setTextColor_(TEXT_WHITE)
     return field
 
 
@@ -1750,6 +1786,12 @@ def _prewarm_resolve_in_background() -> None:
 
 def pick_files():
     """Show the native Cocoa file picker. Returns PickerResult or None."""
+    # Patch process name BEFORE NSApplication exists so menu bar shows our name
+    try:
+        from chads_davinci.menu_bar import set_process_name
+        set_process_name()
+    except Exception:
+        pass
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
 
@@ -1762,6 +1804,9 @@ def pick_files():
 
 
     controller = FilePickerController.alloc().init()
+    # Expose to the rest of the app (menu handlers, etc.)
+    global _CURRENT_CONTROLLER
+    _CURRENT_CONTROLLER = controller
 
     # Window dimensions
     win_w, win_h = 980, 1010
@@ -1787,6 +1832,13 @@ def pick_files():
     except Exception:
         pass
     controller.window = window
+    window.setBackgroundColor_(BG_DARK)
+    # Force dark appearance so all Cocoa controls (checkboxes, popups,
+    # buttons) automatically render with light text on the dark background.
+    from AppKit import NSAppearance
+    dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+    if dark_appearance:
+        window.setAppearance_(dark_appearance)
 
     # Load saved user settings (or empty dict if none)
     from chads_davinci.settings_io import DEFAULT_SETTINGS, load_user_settings
@@ -1877,6 +1929,8 @@ def pick_files():
         path_field.setBezelStyle_(NSTextFieldRoundedBezel)
         path_field.setBezeled_(True)
         path_field.setEditable_(True)
+        path_field.setBackgroundColor_(FIELD_BG)
+        path_field.setTextColor_(TEXT_WHITE)
         path_field.setPlaceholderString_("Drop file here or click Browse")
         path_field.setTarget_(controller)
         path_field.setAction_("pathFieldChanged:")
@@ -1922,7 +1976,7 @@ def pick_files():
                 NSMakeRect(margin + label_w - 60, y - 14, 60, 12),
                 size=9,
             )
-            opt_label.setTextColor_(NSColor.grayColor())
+            opt_label.setTextColor_(TEXT_DIM)
             content.addSubview_(opt_label)
 
         y -= row_h
@@ -1968,10 +2022,9 @@ def pick_files():
     y -= 30
 
     # Separator
-    from Quartz import CGColorCreateGenericRGB
     sep_view = NSView.alloc().initWithFrame_(NSMakeRect(margin, y, win_w - 2 * margin, 1))
     sep_view.setWantsLayer_(True)
-    sep_view.layer().setBackgroundColor_(CGColorCreateGenericRGB(0.5, 0.5, 0.5, 0.4))
+    sep_view.layer().setBackgroundColor_(SEPARATOR_CG)
     content.addSubview_(sep_view)
     y -= 36   # extra breathing room so the 16pt bold header doesn't kiss the line
 
@@ -2004,7 +2057,7 @@ def pick_files():
         NSMakeRect(margin + label_w + 10 + 170, y + 4, 280, 18),
         size=11,
     )
-    connect_status.setTextColor_(NSColor.grayColor())
+    connect_status.setTextColor_(TEXT_DIM)
     content.addSubview_(connect_status)
     controller.connect_status = connect_status
     y -= row_h
@@ -2233,7 +2286,7 @@ def pick_files():
         controller._set_extras(settings.get("extras") or [])
 
     window.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+    (NSApp.activate() if hasattr(NSApp, "activate") else NSApp.activateIgnoringOtherApps_(True))
 
     # Pre-warm Resolve in the background AFTER the picker window is on
     # screen — that way the active re-foregrounding inside

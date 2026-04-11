@@ -94,6 +94,26 @@ class MenuTarget(NSObject):
                 except Exception as e:
                     _show_dialog("Export Failed", str(e))
 
+    def showQuadrantSettings_(self, sender):
+        try:
+            # Snapshot the picker's current form state so the quadrant
+            # dialog sees the user's current (possibly unsaved) Source
+            # Resolution and extras, not stale disk values.
+            try:
+                from chads_davinci.file_picker import get_current_controller
+                ctrl = get_current_controller()
+                if ctrl is not None:
+                    ctrl._save_user_settings_from_form()
+            except Exception:
+                pass
+            from chads_davinci.quadrant_settings import show_quadrant_settings
+            show_quadrant_settings()
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[quadrant_settings] ERROR: {e}\n{tb}", flush=True)
+            _show_dialog("Quadrant Settings Error", f"{e}\n\n{tb}")
+
     def importSettings_(self, sender):
         """Show open panel and import settings from JSON."""
         from AppKit import NSOpenPanel
@@ -118,9 +138,8 @@ class MenuTarget(NSObject):
 
 
 def _show_dialog(title: str, message: str) -> None:
-    """Show a simple macOS dialog. ALWAYS logs to console too so the
-    text is captured in console.log, not just shown on screen."""
-    import subprocess
+    """Show a themed NSAlert dialog matching the app's dark appearance.
+    ALWAYS logs to console too so the text is captured in console.log."""
     # Print to console first so the message lands in console.log
     # regardless of whether the dialog actually appears.
     try:
@@ -129,31 +148,45 @@ def _show_dialog(title: str, message: str) -> None:
     except Exception:
         print(f"{title}\n{message}")
 
-    msg = message.replace('"', '\\"').replace('\n', '\\n')
-    safe_title = title.replace('"', '\\"')
-    # `default button "OK"` makes Return dismiss the dialog without
-    # needing to mouse to the button.
     try:
-        subprocess.run(
-            ["osascript", "-e",
-             f'display dialog "{msg}" with title "{safe_title}" '
-             f'buttons {{"OK"}} default button "OK"'],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=300,
-        )
+        from AppKit import NSAlert
+        from chads_davinci.theme import apply_dark_appearance
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(title)
+        alert.setInformativeText_(message)
+        alert.addButtonWithTitle_("OK")
+        apply_dark_appearance(alert.window())
+        alert.runModal()
     except Exception as e:
         try:
             from rich.console import Console
-            Console().print(f"[yellow]_show_dialog osascript failed: {e}[/yellow]")
+            Console().print(f"[yellow]_show_dialog NSAlert failed: {e}[/yellow]")
         except Exception:
             pass
 
 
+def set_process_name(name: str = "Chad's DaVinci Script") -> None:
+    """Override the process name shown in the menu bar.
+
+    When running in dev mode (not as a bundled .app), macOS shows the
+    Python interpreter's name in the menu bar instead of our app name.
+    We rename the BSD process via NSProcessInfo, which AppKit reads as
+    the application name when no proper bundle is present.
+
+    NOTE: Do NOT try to patch NSBundle.infoDictionary() — that returns
+    an immutable NSDictionary, and mutating it via the Python bridge
+    causes heap corruption that crashes later in NSPanel/NSAlert init.
+    """
+    try:
+        from Foundation import NSProcessInfo
+        NSProcessInfo.processInfo().setProcessName_(name)
+    except Exception:
+        pass
+
+
 def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
     """Install the macOS menu bar with App / Help menus."""
+    set_process_name(app_name)
     target = MenuTarget.alloc().init()
     _RETAINED.append(target)
 
@@ -222,6 +255,15 @@ def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
     import_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
     import_item.setTarget_(target)
     file_menu.addItem_(import_item)
+
+    file_menu.addItem_(NSMenuItem.separatorItem())
+
+    quad_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        "Quadrant Settings\u2026", "showQuadrantSettings:", "Q"
+    )
+    quad_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
+    quad_item.setTarget_(target)
+    file_menu.addItem_(quad_item)
 
     # ---- Edit menu (provides cut/copy/paste for text fields) ----
     edit_menu_item = NSMenuItem.alloc().init()

@@ -1,3 +1,5 @@
+![Chad's DaVinci Script](screenshot.png)
+
 # Chad's DaVinci Script
 
 A native macOS app that automates DaVinci Resolve project setup for
@@ -10,6 +12,31 @@ Built with **PyObjC + py2app**. Distributed as a **signed, notarized
 DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 [![CI](https://github.com/chadlittlepage/chads-davinci-script/actions/workflows/ci.yml/badge.svg)](https://github.com/chadlittlepage/chads-davinci-script/actions)
+
+## What's New in v0.3.0
+
+- **Fully themed dialogs** — Save Preset, Delete Preset confirmation,
+  pre-flight warnings, and in-app menu dialogs now match the dark theme
+  of the main picker. No more light-mode system popups.
+- **Correct menu bar name** — the top-left menu bar now says
+  "Chad's DaVinci Script" instead of "Python" when running in dev mode
+  (uses `NSProcessInfo.setProcessName_`).
+- **Reset Defaults actually resets extras** — clicking Reset Defaults now
+  removes custom "+ Add Video Track" rows along with wiping settings.
+- **Quadrant Settings dialog** (`Shift+Cmd+Q`) — fine-tune Pan, Tilt, and
+  Zoom values for each of the 4 quad tracks plus any extras.
+- **Hardened resolution parsing** — malformed source resolution strings
+  in corrupted presets no longer crash the build; the parser falls back
+  to 1920x1080 with a warning.
+- **Safer JSON enum handling** — unknown role strings in saved settings
+  are skipped with a warning instead of raising KeyError.
+- **Thread-safe connection state** — routing and label arrays are now
+  protected by a `threading.Lock()`.
+- **macOS 15 Sequoia compatibility** — all deprecated
+  `activateIgnoringOtherApps_` calls now use the modern `NSApp.activate()`
+  API with the deprecated call as fallback across all 8 call sites.
+- **Memory leak fixes** — `_RETAINED` module-level lists for About and
+  Manual windows now clear stale entries when re-opened.
 
 ## Features
 

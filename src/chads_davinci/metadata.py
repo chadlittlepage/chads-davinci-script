@@ -417,7 +417,9 @@ def _metadata_rows() -> list[tuple[str, callable]]:
 
 
 def print_metadata_comparison(
-    assignments: list[TrackAssignment], config: MetadataConfig
+    assignments: list[TrackAssignment],
+    config: MetadataConfig,
+    pump: "callable | None" = None,
 ) -> list[tuple[TrackAssignment, FileMetadata]]:
     """Extract and display a comparison table. Returns the (assignment, metadata) results.
 
@@ -426,6 +428,11 @@ def print_metadata_comparison(
     network volume can take ~2s per call. Running them once and reusing
     the result for every row that points to the same path collapses a
     12-second phase to ~2 seconds.
+
+    `pump` is an optional callback (typically `progress.pump`) that
+    services the Cocoa runloop between each file extraction so the
+    progress window stays responsive and the app doesn't beachball
+    during long network-volume metadata reads.
     """
     results: list[tuple[TrackAssignment, FileMetadata]] = []
     cache: dict[str, FileMetadata] = {}
@@ -462,6 +469,14 @@ def print_metadata_comparison(
         meta = extract_metadata(assignment.file_path, config)
         cache[cache_key] = meta
         results.append((assignment, meta))
+
+        # Pump the runloop so the progress window stays responsive
+        # during the potentially-slow network metadata reads.
+        if pump is not None:
+            try:
+                pump()
+            except Exception:
+                pass
 
     if not results:
         console.print("[yellow]No files to compare[/yellow]")

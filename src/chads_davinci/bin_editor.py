@@ -31,6 +31,7 @@ from AppKit import (
 )
 
 from chads_davinci.paths import APP_SUPPORT_DIR
+from chads_davinci.theme import BG_DARK, FIELD_BG, TEXT_WHITE
 
 # Module-level retention to prevent GC of editor controllers/windows
 _RETAINED = []
@@ -327,6 +328,11 @@ def show_bin_editor(initial_roots, completion) -> None:
     )
     window.setTitle_("Edit Bin Structure")
     window.setMinSize_((480, 480))
+    window.setBackgroundColor_(BG_DARK)
+    from AppKit import NSAppearance
+    dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+    if dark_appearance:
+        window.setAppearance_(dark_appearance)
     controller.window = window
 
     content = window.contentView()
@@ -344,6 +350,7 @@ def show_bin_editor(initial_roots, completion) -> None:
     header.setEditable_(False)
     header.setSelectable_(False)
     header.setFont_(NSFont.boldSystemFontOfSize_(14))
+    header.setTextColor_(TEXT_WHITE)
     # Header sticks to TOP: width flex (2) + bottom margin flex (8 = NSViewMinYMargin)
     header.setAutoresizingMask_(2 | 8)
     content.addSubview_(header)
@@ -369,6 +376,7 @@ def show_bin_editor(initial_roots, completion) -> None:
     outline.addTableColumn_(column)
     outline.setOutlineTableColumn_(column)
     outline.setHeaderView_(None)
+    outline.setBackgroundColor_(FIELD_BG)
 
     data_source = BinTreeDataSource.alloc().init()
     data_source.roots = initial_roots
@@ -468,7 +476,10 @@ def show_bin_editor(initial_roots, completion) -> None:
 
     # Show window (non-modal so it's a real popout)
     window.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+    if hasattr(NSApp, "activate"):
+        NSApp.activate()
+    else:
+        NSApp.activateIgnoringOtherApps_(True)
 
     # Retain controller and window in module-level list to prevent GC
     _RETAINED.append((controller, window, data_source))

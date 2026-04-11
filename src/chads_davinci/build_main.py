@@ -96,12 +96,18 @@ def _show_alert(title: str, message: str, critical: bool = False) -> None:
         # Last-resort fallback: NSAlert. Worse Z-ordering on modern
         # macOS but at least the user might see it via Cmd-Tab.
         try:
-            from AppKit import NSAlert, NSAlertStyleCritical, NSAlertStyleInformational
+            from AppKit import NSAlert, NSAlertStyleCritical, NSAlertStyleInformational, NSAppearance
             alert = NSAlert.alloc().init()
             alert.setMessageText_(title)
             alert.setInformativeText_(message)
             alert.setAlertStyle_(NSAlertStyleCritical if critical else NSAlertStyleInformational)
             alert.addButtonWithTitle_("OK")
+            try:
+                dark = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+                if dark is not None:
+                    alert.window().setAppearance_(dark)
+            except Exception:
+                pass
             alert.runModal()
         except Exception:
             pass
@@ -123,11 +129,18 @@ def _maybe_show_first_launch_welcome() -> None:
             NSApplication,
             NSApplicationActivationPolicyRegular,
         )
+        from chads_davinci.menu_bar import set_process_name
+        # Patch the bundle name so the menu bar shows our app name
+        # instead of "Python" when running in dev mode.
+        set_process_name()
         # Spin up NSApplication early so the welcome alert comes to the
         # foreground (otherwise it can hide behind Resolve or Terminal).
         app = NSApplication.sharedApplication()
         app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
-        app.activateIgnoringOtherApps_(True)
+        if hasattr(app, "activate"):
+            app.activate()
+        else:
+            app.activateIgnoringOtherApps_(True)
 
         alert = NSAlert.alloc().init()
         alert.setMessageText_("Welcome to Chad's DaVinci Script")
@@ -145,6 +158,8 @@ def _maybe_show_first_launch_welcome() -> None:
         )
         alert.setAlertStyle_(NSAlertStyleInformational)
         alert.addButtonWithTitle_("Got it")
+        from chads_davinci.theme import apply_dark_appearance
+        apply_dark_appearance(alert.window())
         alert.runModal()
     except Exception:
         # Best-effort; never block the app from starting.
@@ -246,7 +261,10 @@ def main() -> int:
             use_mediainfo=picker_result.use_mediainfo,
             use_ffprobe=picker_result.use_ffprobe,
         )
-        metadata_results = print_metadata_comparison(assignments, meta_config)
+        metadata_results = print_metadata_comparison(
+            assignments, meta_config,
+            pump=progress.pump if progress else None,
+        )
 
         # Save report files if requested
         if picker_result.report_format != "None":

@@ -29,6 +29,7 @@ from AppKit import (
     NSWindowStyleMaskTitled,
 )
 from Foundation import NSDate, NSDefaultRunLoopMode, NSRunLoop
+from chads_davinci.theme import BG_DARK, TEXT_DIM, TEXT_WHITE
 
 # Module-level retention so the window object isn't GC'd while it's visible.
 _RETAINED: list = []
@@ -124,6 +125,11 @@ class ProgressWindow:
             pass
 
         content = self.window.contentView()
+        self.window.setBackgroundColor_(BG_DARK)
+        from AppKit import NSAppearance
+        dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+        if dark_appearance:
+            self.window.setAppearance_(dark_appearance)
 
         # Spinner
         self.spinner = NSProgressIndicator.alloc().initWithFrame_(
@@ -144,6 +150,7 @@ class ProgressWindow:
         self.status.setSelectable_(False)
         self.status.setStringValue_("Starting…")
         self.status.setFont_(NSFont.systemFontOfSize_(14))
+        self.status.setTextColor_(TEXT_WHITE)
         content.addSubview_(self.status)
 
         # Sub-status label (small, gray) — used for per-file progress detail
@@ -157,7 +164,7 @@ class ProgressWindow:
         self.sub_status.setStringValue_("")
         self.sub_status.setFont_(NSFont.systemFontOfSize_(11))
         try:
-            self.sub_status.setTextColor_(NSColor.secondaryLabelColor())
+            self.sub_status.setTextColor_(TEXT_DIM)
         except Exception:
             pass
         content.addSubview_(self.sub_status)
@@ -175,7 +182,7 @@ class ProgressWindow:
         )
         help_label.setFont_(NSFont.systemFontOfSize_(11))
         try:
-            help_label.setTextColor_(NSColor.secondaryLabelColor())
+            help_label.setTextColor_(TEXT_DIM)
         except Exception:
             pass
         content.addSubview_(help_label)

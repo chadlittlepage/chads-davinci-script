@@ -22,6 +22,19 @@ from chads_davinci.models import TrackAssignment, TrackRole
 console = Console()
 
 
+def _parse_resolution(s: str, default: tuple[int, int] = (1920, 1080)) -> tuple[int, int]:
+    """Parse 'WxH' or 'WxH UHD ...' resolution strings, returning (w, h)."""
+    import re
+    m = re.match(r"\s*(\d+)\s*x\s*(\d+)", s or "")
+    if m:
+        try:
+            return int(m.group(1)), int(m.group(2))
+        except (ValueError, TypeError):
+            pass
+    console.print(f"[yellow]Warning: invalid source_resolution '{s}', using {default[0]}x{default[1]}[/yellow]")
+    return default
+
+
 def run_build(data: dict) -> None:
     """Execute the bins/media/timeline build phase from a parsed args dict.
 
@@ -34,12 +47,15 @@ def run_build(data: dict) -> None:
     role_map = {r.value: r for r in TrackRole}
     assignments: list[TrackAssignment] = []
     for a in data["assignments"]:
-        role = role_map[a["role"]]
+        role = role_map.get(a["role"])
+        if role is None:
+            console.print(f"[yellow]Skipping unknown role: {a['role']}[/yellow]")
+            continue
         file_path = Path(a["file_path"]) if a["file_path"] else None
         assignments.append(TrackAssignment(role=role, file_path=file_path, enabled=a["enabled"]))
 
-    # Reconstruct track names
-    track_names = {role_map[k]: v for k, v in data["track_names"].items()}
+    # Reconstruct track names (skip unknown roles)
+    track_names = {role_map[k]: v for k, v in data["track_names"].items() if k in role_map}
     timeline_name = data["timeline_name"]
     start_timecode = data["start_timecode"]
 
@@ -52,11 +68,14 @@ def run_build(data: dict) -> None:
 
     # Update QUAD_TRANSFORMS based on source resolution (timeline = 2x source)
     source_resolution = data.get("source_resolution", "1920x1080")
-    src_w, src_h = (int(x) for x in source_resolution.split("x"))
+    src_w, src_h = _parse_resolution(source_resolution)
     tl_w = src_w * 2
     tl_h = src_h * 2
     from chads_davinci import models
-    models.QUAD_TRANSFORMS = models.get_quad_transforms(tl_w, tl_h)
+    from chads_davinci.settings_io import load_quadrant_settings
+    custom_quad = load_quadrant_settings()
+    custom_tracks = custom_quad.get("tracks") if custom_quad else None
+    models.QUAD_TRANSFORMS = models.get_quad_transforms(tl_w, tl_h, custom=custom_tracks)
 
     # Apply bin rename map to TRACK_BIN_MAP so renamed bins still get the right files
     bin_rename_map = data.get("bin_rename_map") or {}

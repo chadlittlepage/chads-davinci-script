@@ -92,6 +92,10 @@ def show_about_window() -> None:
     )
     window.setTitle_("About Chad's DaVinci Script")
     window.center()
+    from AppKit import NSAppearance
+    dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+    if dark_appearance:
+        window.setAppearance_(dark_appearance)
     controller.window = window
 
     content = window.contentView()
@@ -161,6 +165,9 @@ def show_about_window() -> None:
     content.addSubview_(close_btn)
 
     window.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+    if hasattr(NSApp, "activate"):
+        NSApp.activate()
+    else:
+        NSApp.activateIgnoringOtherApps_(True)
 
     _RETAINED.append((controller, window))

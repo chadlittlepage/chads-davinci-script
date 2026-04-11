@@ -26,14 +26,15 @@ from AppKit import (
     NSWindowStyleMaskResizable,
     NSWindowStyleMaskTitled,
 )
+from chads_davinci.theme import BG_DARK, FIELD_BG, TEXT_WHITE
 
 # Module-level retention to prevent GC
 _RETAINED = []
 
 
 MANUAL_TEXT = """\
-Chad's DaVinci Script — User Manual
-====================================
+Chad's DaVinci Script v0.3.0 — User Manual
+===========================================
 
 OVERVIEW
 This tool automates the setup of a DaVinci Resolve project for quad-view
@@ -51,6 +52,44 @@ HDR metadata testing. In one click it will:
   • Optionally drop Resolve markers on the timeline OR export an EDL file
 
 You can also run a metadata-only mode that skips the Resolve build entirely.
+
+
+WHAT'S NEW IN v0.3.0
+
+  • Reset Defaults now properly clears all custom tracks you added via
+    "+ Add Video Track" along with the saved settings. Previously the
+    extras remained on screen after a reset.
+
+  • All dialogs and alerts now match the dark theme of the main picker
+    (Save Preset, Delete Preset confirmation, pre-flight warnings, and
+    in-app menu dialogs). No more light-mode system popups breaking
+    the visual consistency.
+
+  • The menu bar now correctly shows "Chad's DaVinci Script" at the
+    top-left instead of "Python" when running in dev mode.
+
+  • Quadrant Settings dialog (Shift+Cmd+Q) — edit the pan/tilt and
+    zoom values for each of the 4 quadrants plus any extra tracks.
+    Changes apply the next time you build.
+
+  • Hardened resolution parsing throughout — malformed source
+    resolution strings (from corrupted presets or imported settings)
+    no longer crash the build. The parser falls back to 1920x1080
+    with a warning logged to the console.
+
+  • Safer JSON enum handling — unknown role strings in saved settings
+    are skipped with a warning instead of raising KeyError.
+
+  • Thread-safe label and routing array access during background
+    metadata extraction.
+
+  • macOS 15 Sequoia compatibility — all deprecated
+    activateIgnoringOtherApps_ calls now use the modern
+    NSApp.activate() API with the deprecated call as fallback.
+
+  • Memory leak fixes — module-level retention lists for About and
+    Manual windows now clear stale entries when re-opened instead of
+    accumulating.
 
 
 GETTING STARTED
@@ -269,10 +308,31 @@ Presets are stored in
 
 
 RESET DEFAULTS
-The "Reset Defaults" button (just below Resolve Markers) wipes ALL saved
-user settings + bin structure, removes any extra tracks, and re-populates
-the form with the factory defaults. Use this if your saved state ever gets
-into a strange shape.
+The "Reset Defaults" button (just below Resolve Markers) does a full
+factory reset in one click:
+  • Wipes user_settings.json and bin_structure.json
+  • Removes EVERY extra track row you added
+  • Re-populates all form fields with the factory defaults
+  • If Quadrant Settings is open, it refreshes to show the cleared extras
+Use this if your saved state ever gets into a strange shape, or to start
+a clean configuration for a new client preset.
+
+
+QUADRANT SETTINGS (Shift+Cmd+Q)
+Open from File > Quadrant Settings… or via Shift+Cmd+Q. This dialog
+lets you fine-tune the Pan, Tilt, and Zoom values applied to each of
+the 4 quad tracks (V3 HW2 300 nit, V4 L1SHW 300, V5 HW2 795 Stretch,
+V6 L1SHW 795 Stretch) plus any extra tracks you've added.
+
+Default quad transforms:
+  • Q1 Top-Left:     Pan −Width/4, Tilt +Height/4
+  • Q2 Top-Right:    Pan +Width/4, Tilt +Height/4
+  • Q3 Bottom-Left:  Pan −Width/4, Tilt −Height/4
+  • Q4 Bottom-Right: Pan +Width/4, Tilt −Height/4
+
+Changes are saved to
+~/Library/Application Support/Chads DaVinci Script/quadrant_settings.json
+and applied on the next build.
 
 
 FIRST-LAUNCH WELCOME
@@ -668,10 +728,15 @@ new Application Support location automatically on first launch.
 
 
 KEYBOARD SHORTCUTS
-  Cmd+V                       Paste a file path into the focused field
+  Cmd+C / Cmd+V               Copy / paste in any text field
+  Cmd+X / Cmd+A               Cut / select all in any text field
+  Cmd+Z / Cmd+Shift+Z         Undo / redo in any text field
+  Cmd+H                       Hide the app
   Cmd+Q                       Quit
   Shift+Cmd+E                 File > Export Settings…
   Shift+Cmd+I                 File > Import Settings…
+  Shift+Cmd+Q                 File > Quadrant Settings…
+  Cmd+?                       Help > Chad's DaVinci Script Help
   Return (when picker is up)  OK (build the project)
 
 
@@ -776,6 +841,11 @@ def show_manual_window() -> None:
     window.setMinSize_(NSMakeSize(500, 400))
     window.center()
     controller.window = window
+    window.setBackgroundColor_(BG_DARK)
+    from AppKit import NSAppearance
+    dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+    if dark_appearance:
+        window.setAppearance_(dark_appearance)
 
     content = window.contentView()
 
@@ -798,7 +868,8 @@ def show_manual_window() -> None:
     text_view.setEditable_(False)
     text_view.setSelectable_(True)
     text_view.setDrawsBackground_(True)
-    text_view.setBackgroundColor_(NSColor.textBackgroundColor())
+    text_view.setBackgroundColor_(FIELD_BG)
+    text_view.setTextColor_(TEXT_WHITE)
     text_view.setRichText_(False)
     text_view.setFont_(NSFont.fontWithName_size_("Menlo", 12) or NSFont.systemFontOfSize_(12))
 
@@ -822,6 +893,9 @@ def show_manual_window() -> None:
     content.addSubview_(close_btn)
 
     window.makeKeyAndOrderFront_(None)
-    NSApp.activateIgnoringOtherApps_(True)
+    if hasattr(NSApp, "activate"):
+        NSApp.activate()
+    else:
+        NSApp.activateIgnoringOtherApps_(True)
 
     _RETAINED.append((controller, window))

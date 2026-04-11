@@ -17,6 +17,7 @@ from chads_davinci.paths import APP_SUPPORT_DIR
 USER_SETTINGS_PATH = APP_SUPPORT_DIR / "user_settings.json"
 BIN_STRUCTURE_PATH = APP_SUPPORT_DIR / "bin_structure.json"
 PRESETS_PATH = APP_SUPPORT_DIR / "presets.json"
+QUADRANT_SETTINGS_PATH = APP_SUPPORT_DIR / "quadrant_settings.json"
 
 
 def load_presets() -> dict:
@@ -52,11 +53,11 @@ def delete_preset(name: str) -> None:
 DEFAULT_SETTINGS = {
     "track_names": {
         "REEL_SOURCE": "REEL SOURCE",
-        "HW2_300_NIT": "HW2 300 nit",
-        "L1SHW_300": "L1SHW 300",
+        "L1SHW_795_STRETCH_1500": "L15HW 795 Stretch 1500",
         "HW2_795_STRETCH_1500": "HW2 795 Stretch 1500",
-        "L1SHW_795_STRETCH_1500": "L1SHW 795 Stretch 1500",
-        "L1SHW_HDMI": "L1SHW HDMI",
+        "L1SHW_300": "L15HW 300",
+        "HW2_300_NIT": "HW2 300",
+        "L1SHW_HDMI": "L15HW HDMI",
     },
     "folder_name": "Quad Projects",
     "project_name": "Quad Project v001",
@@ -98,6 +99,30 @@ def save_user_settings(data: dict) -> None:
     )
 
 
+def load_quadrant_settings() -> dict | None:
+    """Load custom quadrant settings from disk. Returns None if not present."""
+    if not QUADRANT_SETTINGS_PATH.exists():
+        return None
+    try:
+        return json.loads(QUADRANT_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def save_quadrant_settings(data: dict) -> None:
+    """Persist quadrant settings to disk."""
+    QUADRANT_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    QUADRANT_SETTINGS_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def reset_quadrant_settings() -> None:
+    """Delete the quadrant settings file (revert to defaults)."""
+    if QUADRANT_SETTINGS_PATH.exists():
+        QUADRANT_SETTINGS_PATH.unlink()
+
+
 def collect_settings_bundle() -> dict:
     """Build a complete settings bundle for export."""
     bundle = {
@@ -112,6 +137,11 @@ def collect_settings_bundle() -> dict:
             bundle["bin_structure"] = json.loads(BIN_STRUCTURE_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
+
+    # Include quadrant settings if they exist
+    quad = load_quadrant_settings()
+    if quad:
+        bundle["quadrant_settings"] = quad
 
     return bundle
 
@@ -135,6 +165,10 @@ def apply_settings_bundle(bundle: dict) -> tuple[bool, str]:
             json.dumps(bundle["bin_structure"], indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+
+    # Apply quadrant_settings if present
+    if "quadrant_settings" in bundle and isinstance(bundle["quadrant_settings"], dict):
+        save_quadrant_settings(bundle["quadrant_settings"])
 
     return True, "Settings imported successfully"
 

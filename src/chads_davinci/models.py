@@ -18,28 +18,28 @@ class TrackRole(Enum):
 
     QUAD_TEMPLATE = "QUAD Template"
     REEL_SOURCE = "REEL SOURCE"
-    HW2_300_NIT = "HW2 300 nit"
-    L1SHW_300 = "L1SHW 300"
+    L1SHW_795_STRETCH_1500 = "L15HW 795 Stretch 1500"
     HW2_795_STRETCH_1500 = "HW2 795 Stretch 1500"
-    L1SHW_795_STRETCH_1500 = "L1SHW 795 Stretch 1500"
-    L1SHW_HDMI = "L1SHW HDMI"
+    L1SHW_300 = "L15HW 300"
+    HW2_300_NIT = "HW2 300"
+    L1SHW_HDMI = "L15HW HDMI"
 
 
-# Tracks the user selects files for (V1 Quad1 is auto-generated)
+# Tracks the user selects files for (V1 Quad Template is auto-generated)
 SELECTABLE_TRACKS = [
     TrackRole.REEL_SOURCE,
-    TrackRole.HW2_300_NIT,
-    TrackRole.L1SHW_300,
-    TrackRole.HW2_795_STRETCH_1500,
     TrackRole.L1SHW_795_STRETCH_1500,
+    TrackRole.HW2_795_STRETCH_1500,
+    TrackRole.L1SHW_300,
+    TrackRole.HW2_300_NIT,
     TrackRole.L1SHW_HDMI,
 ]
 
 REQUIRED_TRACKS = {
-    TrackRole.HW2_300_NIT,
-    TrackRole.L1SHW_300,
-    TrackRole.HW2_795_STRETCH_1500,
     TrackRole.L1SHW_795_STRETCH_1500,
+    TrackRole.HW2_795_STRETCH_1500,
+    TrackRole.L1SHW_300,
+    TrackRole.HW2_300_NIT,
 }
 OPTIONAL_TRACKS = {TrackRole.REEL_SOURCE, TrackRole.L1SHW_HDMI}
 
@@ -62,43 +62,120 @@ class TrackAssignment:
         return list(TrackRole).index(self.role) + 1
 
 
+class Quadrant(Enum):
+    """Quadrant position in the quad-view layout."""
+
+    Q1 = "Q1"  # top-left
+    Q2 = "Q2"  # top-right
+    Q3 = "Q3"  # bottom-left
+    Q4 = "Q4"  # bottom-right
+
+
 @dataclass
 class QuadTransform:
-    """Position and scale for a quadrant in the 8K canvas."""
+    """Full DaVinci Resolve Transform for a quadrant clip."""
 
-    zoom_x: float
-    zoom_y: float
-    position_x: float
-    position_y: float
+    zoom_x: float = 1.0
+    zoom_y: float = 1.0
+    position_x: float = 0.0
+    position_y: float = 0.0
+    rotation_angle: float = 0.0
+    anchor_point_x: float = 0.0
+    anchor_point_y: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+    flip_h: bool = False
+    flip_v: bool = False
+
+
+# Default quadrant assignment for each track.
+DEFAULT_TRACK_QUADRANTS: dict[TrackRole, Quadrant] = {
+    TrackRole.L1SHW_795_STRETCH_1500: Quadrant.Q1,
+    TrackRole.REEL_SOURCE: Quadrant.Q2,
+    TrackRole.HW2_795_STRETCH_1500: Quadrant.Q2,
+    TrackRole.L1SHW_300: Quadrant.Q3,
+    TrackRole.HW2_300_NIT: Quadrant.Q4,
+    TrackRole.L1SHW_HDMI: Quadrant.Q4,
+}
+
+
+def quadrant_offsets(quadrant: Quadrant, timeline_w: int, timeline_h: int) -> tuple[float, float]:
+    """Return (position_x, position_y) for the given quadrant."""
+    ox = timeline_w / 2
+    oy = timeline_h / 2
+    return {
+        Quadrant.Q1: (-ox, oy),
+        Quadrant.Q2: (ox, oy),
+        Quadrant.Q3: (-ox, -oy),
+        Quadrant.Q4: (ox, -oy),
+    }[quadrant]
 
 
 # Computed quad transforms — call get_quad_transforms(timeline_w, timeline_h) to get them.
 # Timeline is always 2x source, so each quad fills exactly one quadrant at zoom=1.0.
-# Pan/Tilt offsets = timeline_dimension / 4 (positive=right/up, negative=left/down).
+# Pan/Tilt offsets = timeline_dimension / 2 (positive=right/up, negative=left/down).
 # V3=Q1 (top-left), V4=Q2 (top-right), V5=Q3 (bottom-left), V6=Q4 (bottom-right).
 
 
-def get_quad_transforms(timeline_w: int, timeline_h: int) -> dict[TrackRole, QuadTransform]:
+def get_quad_transforms(
+    timeline_w: int,
+    timeline_h: int,
+    custom: dict[str, dict] | None = None,
+) -> dict[TrackRole, QuadTransform]:
     """Compute quad transforms for the given timeline resolution.
 
-    Resolve auto-scales source to fill the timeline, so the clip is at full
-    timeline size. To make each clip show only one quadrant, we offset each
-    by ±timeline_dim / 2 so 3/4 of the clip is pushed off-screen and only
-    the desired quadrant remains visible. Zoom stays at 1.0.
+    If `custom` is provided (keyed by TrackRole.name), those values override
+    the defaults. Custom entries store a quadrant label plus explicit transform
+    fields. Position values are recomputed from the quadrant assignment for the
+    given resolution unless the custom entry has position values that differ
+    from the default 8K offsets (manual override).
 
-    Q1 top-left: clip pushed to top-left → see its bottom-right quarter
-    Q2 top-right: clip pushed to top-right → see its bottom-left quarter
-    Q3 bottom-left: clip pushed to bottom-left → see its top-right quarter
-    Q4 bottom-right: clip pushed to bottom-right → see its top-left quarter
+    Q1 top-left, Q2 top-right, Q3 bottom-left, Q4 bottom-right.
     """
-    ox = timeline_w / 2
-    oy = timeline_h / 2
-    return {
-        TrackRole.HW2_300_NIT: QuadTransform(zoom_x=1.0, zoom_y=1.0, position_x=-ox, position_y=oy),
-        TrackRole.L1SHW_300: QuadTransform(zoom_x=1.0, zoom_y=1.0, position_x=ox, position_y=oy),
-        TrackRole.HW2_795_STRETCH_1500: QuadTransform(zoom_x=1.0, zoom_y=1.0, position_x=-ox, position_y=-oy),
-        TrackRole.L1SHW_795_STRETCH_1500: QuadTransform(zoom_x=1.0, zoom_y=1.0, position_x=ox, position_y=-oy),
-    }
+    role_map = {r.name: r for r in TrackRole}
+    result: dict[TrackRole, QuadTransform] = {}
+
+    for role in SELECTABLE_TRACKS:
+        quad = DEFAULT_TRACK_QUADRANTS.get(role, Quadrant.Q1)
+        px, py = quadrant_offsets(quad, timeline_w, timeline_h)
+        transform = QuadTransform(position_x=px, position_y=py)
+
+        if custom and role.name in custom:
+            cfg = custom[role.name]
+            # Determine quadrant (may have been reassigned)
+            q_str = cfg.get("quadrant")
+            if q_str:
+                try:
+                    quad = Quadrant(q_str)
+                except ValueError:
+                    pass
+            # Recompute position for actual resolution from quadrant
+            px, py = quadrant_offsets(quad, timeline_w, timeline_h)
+            # Check if the user manually overrode position (differs from
+            # the 8K default for this quadrant). If so, use stored values.
+            default_8k_px, default_8k_py = quadrant_offsets(quad, 7680, 4320)
+            stored_px = cfg.get("position_x", default_8k_px)
+            stored_py = cfg.get("position_y", default_8k_py)
+            if (stored_px != default_8k_px) or (stored_py != default_8k_py):
+                px, py = stored_px, stored_py
+
+            transform = QuadTransform(
+                zoom_x=cfg.get("zoom_x", 1.0),
+                zoom_y=cfg.get("zoom_y", 1.0),
+                position_x=px,
+                position_y=py,
+                rotation_angle=cfg.get("rotation_angle", 0.0),
+                anchor_point_x=cfg.get("anchor_point_x", 0.0),
+                anchor_point_y=cfg.get("anchor_point_y", 0.0),
+                pitch=cfg.get("pitch", 0.0),
+                yaw=cfg.get("yaw", 0.0),
+                flip_h=cfg.get("flip_h", False),
+                flip_v=cfg.get("flip_v", False),
+            )
+
+        result[role] = transform
+
+    return result
 
 
 # Default transforms (8K) — kept for backwards compatibility

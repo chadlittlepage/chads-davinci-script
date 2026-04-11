@@ -266,7 +266,8 @@ def set_project_settings(
     project = ctx.project
 
     # Compute timeline resolution from source
-    src_w, src_h = (int(x) for x in source_resolution.split("x"))
+    from chads_davinci.build_worker import _parse_resolution
+    src_w, src_h = _parse_resolution(source_resolution)
     tl_w = src_w * 2
     tl_h = src_h * 2
 
@@ -773,6 +774,13 @@ def _create_transform_templates(
             compound.SetProperty("ZoomY", transform.zoom_y)
             compound.SetProperty("Pan", transform.position_x)
             compound.SetProperty("Tilt", transform.position_y)
+            compound.SetProperty("RotationAngle", transform.rotation_angle)
+            compound.SetProperty("AnchorPointX", transform.anchor_point_x)
+            compound.SetProperty("AnchorPointY", transform.anchor_point_y)
+            compound.SetProperty("Pitch", transform.pitch)
+            compound.SetProperty("Yaw", transform.yaw)
+            compound.SetProperty("FlipX", bool(transform.flip_h))
+            compound.SetProperty("FlipY", bool(transform.flip_v))
 
         # Color Orange
         compound.SetClipColor("Orange")
@@ -878,6 +886,13 @@ def _apply_transform(ctx: ResolveContext, track_number: int, role: TrackRole) ->
         clip.SetProperty("ZoomY", transform.zoom_y)
         clip.SetProperty("Pan", transform.position_x)
         clip.SetProperty("Tilt", transform.position_y)
+        clip.SetProperty("RotationAngle", transform.rotation_angle)
+        clip.SetProperty("AnchorPointX", transform.anchor_point_x)
+        clip.SetProperty("AnchorPointY", transform.anchor_point_y)
+        clip.SetProperty("Pitch", transform.pitch)
+        clip.SetProperty("Yaw", transform.yaw)
+        clip.SetProperty("FlipX", bool(transform.flip_h))
+        clip.SetProperty("FlipY", bool(transform.flip_v))
 
     console.print(
         f"  Transform applied: zoom={transform.zoom_x}, "
