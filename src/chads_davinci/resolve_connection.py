@@ -50,10 +50,17 @@ def _reactivate_self() -> None:
     so we periodically re-foreground ourselves while we wait for it.
     """
     try:
-        from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
-        NSRunningApplication.currentApplication().activateWithOptions_(
-            NSApplicationActivateIgnoringOtherApps
-        )
+        from AppKit import NSRunningApplication
+        app = NSRunningApplication.currentApplication()
+        if app is None:
+            return
+        # activate() is the modern API (macOS 14+). activateWithOptions_
+        # is deprecated but needed on macOS 13 and earlier.
+        if hasattr(app, "activate"):
+            app.activate()
+        else:
+            from AppKit import NSApplicationActivateIgnoringOtherApps
+            app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
     except Exception:
         pass
 

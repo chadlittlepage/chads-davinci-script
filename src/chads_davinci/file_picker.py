@@ -26,7 +26,6 @@ from AppKit import (
     NSColor,
     NSDragOperationCopy,
     NSDragOperationNone,
-    NSFilenamesPboardType,
     NSFont,
     NSLineBreakByTruncatingHead,
     NSMakeRect,
@@ -41,6 +40,15 @@ from AppKit import (
     NSWindowStyleMaskMiniaturizable,
     NSWindowStyleMaskTitled,
 )
+
+# NSFilenamesPboardType is deprecated in macOS 14+ and may be removed in
+# a future OS. Import it optionally — drag-drop uses public.file-url as
+# the primary type and only falls back to this for pre-Sonoma pasteboard
+# data.
+try:
+    from AppKit import NSFilenamesPboardType
+except ImportError:
+    NSFilenamesPboardType = "NSFilenamesPboardType"  # type: ignore[misc]
 
 from chads_davinci.models import (
     OPTIONAL_TRACKS,
@@ -340,11 +348,15 @@ class DropTextField(NSTextField):
         if self is not None:
             self._drop_target = None
             self._drop_action = None
-            # Register for BOTH legacy and modern pasteboard types.
-            # macOS 15's Finder no longer reliably populates the legacy
+            # Register for modern UTI first (preferred), legacy second.
+            # macOS 15+ Finder no longer reliably populates the legacy
             # NSFilenamesPboardType — without public.file-url here, the
             # drag session never resolves and the main thread can hang.
-            self.registerForDraggedTypes_([NSFilenamesPboardType, _FILE_URL_UTI])
+            # Ordering matters: Cocoa prefers the first registered type.
+            drag_types = [_FILE_URL_UTI]
+            if NSFilenamesPboardType is not None:
+                drag_types.append(NSFilenamesPboardType)
+            self.registerForDraggedTypes_(drag_types)
             # Path fields hold long POSIX paths. Truncate at the HEAD so the
             # filename (most informative part) stays visible instead of the
             # default leading-truncation that shows just "/Volumes/foo/".
@@ -397,28 +409,34 @@ class DropTextField(NSTextField):
         self._drop_action = action
 
     def _set_drag_highlight(self, on):
-        self.setWantsLayer_(True)
-        layer = self.layer()
-        if layer is None:
-            return
-        if on:
-            # Use CGColorCreateGenericRGB so PyObjC's bridge knows the type
-            # (avoids ObjCPointerWarning that NSColor.CGColor() triggers).
-            from Quartz import CGColorCreateGenericRGB
-            # Apple's controlAccentColor (~ macOS blue) in sRGB.
-            border = CGColorCreateGenericRGB(0.0, 0.478, 1.0, 1.0)
-            layer.setBorderColor_(border)
-            layer.setBorderWidth_(2.0)
-            layer.setCornerRadius_(5.0)
-        else:
-            layer.setBorderWidth_(0.0)
+        try:
+            self.setWantsLayer_(True)
+            layer = self.layer()
+            if layer is None:
+                return
+            if on:
+                # Use CGColorCreateGenericRGB so PyObjC's bridge knows the type
+                # (avoids ObjCPointerWarning that NSColor.CGColor() triggers).
+                from Quartz import CGColorCreateGenericRGB
+                # Apple's controlAccentColor (~ macOS blue) in sRGB.
+                border = CGColorCreateGenericRGB(0.0, 0.478, 1.0, 1.0)
+                layer.setBorderColor_(border)
+                layer.setBorderWidth_(2.0)
+                layer.setCornerRadius_(5.0)
+            else:
+                layer.setBorderWidth_(0.0)
+        except Exception:
+            pass
 
     @objc.signature(b"Q@:@")
     def draggingEntered_(self, sender):
-        types = sender.draggingPasteboard().types() or []
-        if NSFilenamesPboardType in types or _FILE_URL_UTI in types:
-            self._set_drag_highlight(True)
-            return NSDragOperationCopy
+        try:
+            types = sender.draggingPasteboard().types() or []
+            if _FILE_URL_UTI in types or NSFilenamesPboardType in types:
+                self._set_drag_highlight(True)
+                return NSDragOperationCopy
+        except Exception:
+            pass
         return NSDragOperationNone
 
     def draggingExited_(self, sender):
