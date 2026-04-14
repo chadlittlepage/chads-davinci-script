@@ -112,7 +112,7 @@ class MenuTarget(NSObject):
             import traceback
             tb = traceback.format_exc()
             print(f"[quadrant_settings] ERROR: {e}\n{tb}", flush=True)
-            _show_dialog("Quadrant Settings Error", f"{e}\n\n{tb}")
+            _show_dialog("Settings Error", f"{e}\n\n{tb}")
 
     def importSettings_(self, sender):
         """Show open panel and import settings from JSON."""
@@ -282,7 +282,7 @@ def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
     file_menu.addItem_(NSMenuItem.separatorItem())
 
     quad_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        "Quadrant Settings\u2026", "showQuadrantSettings:", "Q"
+        "Settings\u2026", "showQuadrantSettings:", "Q"
     )
     quad_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
     quad_item.setTarget_(target)

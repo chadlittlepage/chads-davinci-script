@@ -1,4 +1,4 @@
-"""Quadrant Settings dialog — assign tracks to quadrants and customize transforms.
+"""Settings dialog — assign tracks to quadrants and customize transforms.
 
 This Script and Code created by:
 Chad Littlepage
@@ -178,6 +178,7 @@ class QuadrantSettingsController(NSObject):
             self._current_row = -1
             self.tl_w = 7680
             self.tl_h = 4320
+            self.skip_v1_check = None
         return self
 
     # ---- Loading ---------------------------------------------------------
@@ -400,10 +401,12 @@ class QuadrantSettingsController(NSObject):
             else:
                 tracks_out[key] = cfg
 
+        skip_v1 = bool(self.skip_v1_check and self.skip_v1_check.state())
         save_quadrant_settings({
             "version": 1,
             "tracks": tracks_out,
             "extras": extras_out,
+            "skip_v1_templates": skip_v1,
         })
 
         # Persist the extras list to user_settings.json so the file picker
@@ -438,7 +441,7 @@ class QuadrantSettingsController(NSObject):
 # ---------------------------------------------------------------------------
 
 def show_quadrant_settings() -> None:
-    """Open the Quadrant Settings dialog."""
+    """Open the Settings dialog."""
     controller = QuadrantSettingsController.alloc().init()
     controller._load_working()
 
@@ -455,7 +458,7 @@ def show_quadrant_settings() -> None:
         NSBackingStoreBuffered,
         False,
     )
-    window.setTitle_("Quadrant Settings")
+    window.setTitle_("Settings")
     window.center()
     window.setBackgroundColor_(BG_DARK)
     dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
@@ -469,7 +472,7 @@ def show_quadrant_settings() -> None:
 
     # --- Title ---
     title = _make_label(
-        "Quadrant Settings",
+        "Settings",
         NSMakeRect(margin, win_h - margin - 24, win_w - 2 * margin, 24),
         bold=True, size=16,
     )
@@ -603,6 +606,24 @@ def show_quadrant_settings() -> None:
     )
     note.setTextColor_(TEXT_DIM)
     content.addSubview_(note)
+
+    # --- Build Options ---
+    y -= 30
+    skip_v1 = NSButton.alloc().initWithFrame_(
+        NSMakeRect(detail_x, y, detail_w, 24)
+    )
+    skip_v1.setButtonType_(3)  # NSSwitchButton
+    skip_v1.setTitle_("Skip V1 quadrant templates (faster build)")
+    skip_v1.setToolTip_(
+        "When checked, the build will not generate the Solid Color "
+        "compound clips on V1. Saves time if you don't need the "
+        "quadrant reference overlays."
+    )
+    from chads_davinci.settings_io import load_quadrant_settings
+    saved_quad = load_quadrant_settings() or {}
+    skip_v1.setState_(1 if saved_quad.get("skip_v1_templates", False) else 0)
+    content.addSubview_(skip_v1)
+    controller.skip_v1_check = skip_v1
 
     # --- Bottom buttons ---
     reset_btn = NSButton.alloc().initWithFrame_(

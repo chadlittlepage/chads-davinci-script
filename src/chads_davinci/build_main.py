@@ -20,7 +20,7 @@ from chads_davinci import __version__
 from chads_davinci.file_picker import pick_files
 from chads_davinci.metadata import print_metadata_comparison
 from chads_davinci.models import MetadataConfig
-from chads_davinci.ui_automation import set_playback_frame_rate, set_4k8k_quad_split
+from chads_davinci.ui_automation import set_project_settings_via_ui
 from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
@@ -353,23 +353,17 @@ def main() -> int:
 
     # Step 4: Set the playback frame rate.
     #
-    # The Resolve API treats `timelinePlaybackFrameRate` as read-only on
-    # most Resolve versions, so SetSetting() returns falsy and the
-    # playback monitor stays at Resolve's default (e.g. 24) even though
-    # the timeline frame rate is correctly set to (e.g.) 23.976.
+    # Step 4b: Playback frame rate + 4K/8K format via UI automation
     #
-    # If the API call doesn't take effect, fall back to UI automation
-    # via AppleScript. The AppleScript opens Resolve's Project Settings
-    # dialog, sets the field, and clicks Save (or Cancel if Save is
-    # disabled because the value was already correct — see
-    # ui_automation.set_playback_frame_rate for details).
+    # Both settings may be read-only via the Resolve scripting API.
+    # We determine which ones need UI automation, then open the Project
+    # Settings dialog ONCE, apply everything, and Save ONCE.
     #
-    # We HIDE the progress panel before running the AppleScript so it
-    # isn't covered by the Project Settings dialog (Resolve is Qt and
-    # its modals bypass AppKit's window level hierarchy), then SHOW it
-    # again afterward.
+    # The progress panel is hidden while the AppleScript runs because
+    # Resolve is Qt and its modal dialogs bypass AppKit's window levels.
     console.print()
     desired = str(picker_result.frame_rate)
+    need_fps_ui = False
     try:
         current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
     except Exception:
@@ -388,49 +382,28 @@ def main() -> int:
         if current_playback == desired:
             console.print(f"  Playback frame rate set to {desired} via API")
         else:
-            # Fall back to AppleScript UI automation. Hide the progress
-            # panel briefly so it doesn't get covered by the Project
-            # Settings dialog, run the script, then re-show.
             console.print(
                 f"  [dim]API couldn't set playback frame rate "
-                f"(still {current_playback}); falling back to UI automation[/dim]"
+                f"(still {current_playback}); queuing for UI automation[/dim]"
             )
-            if progress:
-                progress.set_status(
-                    "Setting playback frame rate via Resolve UI…",
-                    "Resolve will briefly show its Project Settings dialog",
-                )
-                try:
-                    progress.window.orderOut_(None)
-                    progress.pump()
-                except Exception:
-                    pass
-            try:
-                set_playback_frame_rate(desired)
-            finally:
-                if progress:
-                    try:
-                        progress.window.orderFrontRegardless()
-                        progress.pump()
-                    except Exception:
-                        pass
-                    progress.set_status(
-                        "Continuing build…",
-                        "Playback frame rate updated",
-                    )
+            need_fps_ui = True
 
-    # Step 4b: 4K/8K format → Square Division Quad Split (SQ)
-    # The API-based set_project_settings tries first; if it couldn't find
-    # the right key, fall back to AppleScript (same pattern as frame rate).
-    sq_done = getattr(ctx, "_sq_set_via_api", False)
-    if not sq_done:
-        console.print()
-        console.print(
-            "  [dim]API couldn't set 4K/8K format; falling back to UI automation[/dim]"
-        )
+    need_sq_ui = not getattr(ctx, "_sq_set_via_api", False)
+    if need_sq_ui:
+        console.print("  [dim]4K/8K format needs UI automation[/dim]")
+
+    if need_fps_ui or need_sq_ui:
+        parts = []
+        if need_fps_ui:
+            parts.append("playback frame rate")
+        if need_sq_ui:
+            parts.append("4K/8K format")
+        desc = " + ".join(parts)
+        console.print(f"  [dim]Opening Project Settings once for: {desc}[/dim]")
+
         if progress:
             progress.set_status(
-                "Setting 4K/8K format via Resolve UI…",
+                f"Setting {desc} via Resolve UI…",
                 "Resolve will briefly show its Project Settings dialog",
             )
             try:
@@ -439,7 +412,21 @@ def main() -> int:
             except Exception:
                 pass
         try:
-            set_4k8k_quad_split()
+            result = set_project_settings_via_ui(
+                frame_rate=desired if need_fps_ui else None,
+                set_quad_split=need_sq_ui,
+            )
+            if result == "SAVED":
+                console.print(f"  UI automation: {desc} saved")
+            elif result == "UNCHANGED":
+                console.print(f"  UI automation: {desc} already correct")
+            elif result and result.startswith("ERROR:"):
+                console.print(
+                    f"  [yellow]UI automation error ({desc}), "
+                    f"dialog closed via Cancel: {result[6:]}[/yellow]"
+                )
+            else:
+                console.print(f"  [yellow]Could not set {desc} via UI automation[/yellow]")
         finally:
             if progress:
                 try:
@@ -447,10 +434,7 @@ def main() -> int:
                     progress.pump()
                 except Exception:
                     pass
-                progress.set_status(
-                    "Continuing build…",
-                    "4K/8K format updated",
-                )
+                progress.set_status("Continuing build…")
 
     # Step 5: Run bins/media/timeline (fresh Resolve API connection)
     console.print()

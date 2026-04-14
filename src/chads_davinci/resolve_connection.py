@@ -599,6 +599,7 @@ def create_quad_timeline(
     timeline_name: str = "Dolby Quad View",
     track_names: dict[TrackRole, str] | None = None,
     start_timecode: str = "00:00:00:00",
+    skip_v1_templates: bool = False,
 ) -> Any:
     """Create a timeline with 7 video tracks and quad transforms applied."""
     media_pool = ctx.media_pool
@@ -628,7 +629,7 @@ def create_quad_timeline(
         _apply_track_names(ctx, track_names)
 
     # Place clips on tracks and apply transforms
-    _place_clips_on_tracks(ctx, assignments, media_items)
+    _place_clips_on_tracks(ctx, assignments, media_items, skip_v1_templates=skip_v1_templates)
 
     return timeline
 
@@ -649,6 +650,7 @@ def _place_clips_on_tracks(
     ctx: ResolveContext,
     assignments: list[TrackAssignment],
     media_items: dict[TrackRole, Any],
+    skip_v1_templates: bool = False,
 ) -> None:
     """Place media items on their assigned tracks and apply quad transforms.
 
@@ -665,10 +667,13 @@ def _place_clips_on_tracks(
 
     # Create V1 transform templates FIRST (InsertGenerator ripple-pushes all tracks,
     # so we do it before placing any media clips). Duration from media pool items.
-    for assignment in assignments:
-        if assignment.role == TrackRole.QUAD_TEMPLATE:
-            _create_transform_templates(ctx, assignment.track_number, media_items)
-            break
+    if skip_v1_templates:
+        console.print("  [dim]Skipping V1 quadrant templates (disabled in Settings)[/dim]")
+    else:
+        for assignment in assignments:
+            if assignment.role == TrackRole.QUAD_TEMPLATE:
+                _create_transform_templates(ctx, assignment.track_number, media_items)
+                break
 
     # Place media clips on V2-V7, compensating for ripple offset
     for assignment in assignments:

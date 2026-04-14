@@ -42,7 +42,7 @@ def _run_applescript(script: str) -> str | None:
         stderr = (result.stderr or "").strip()
         if "-1719" in stderr or "not allowed assistive access" in stderr:
             # Accessibility permission not granted. The build still works
-            # without this; the playback frame rate just won't be auto-set.
+            # without this; the settings just won't be auto-set.
             return None
         console.print(f"[yellow]AppleScript error: {stderr}[/yellow]")
         return None
@@ -55,19 +55,69 @@ def _run_applescript(script: str) -> str | None:
         return None
 
 
-def set_playback_frame_rate(frame_rate: str) -> bool:
-    """Set the Playback frame rate in Project Settings via UI automation.
+def set_project_settings_via_ui(
+    frame_rate: str | None = None,
+    set_quad_split: bool = False,
+) -> str | None:
+    """Open Project Settings ONCE, apply all requested changes, Save ONCE.
 
-    Opens Project Settings, sets the playback frame rate text field, and
-    clicks Save. The script ALWAYS closes the dialog before returning —
-    if the value is unchanged (Save button disabled), it clicks Cancel
-    instead. Leaving the dialog open would block every subsequent
-    Resolve API call (ImportMedia, AddTrack, etc.) in the build_worker
-    subprocess and produce silent import failures.
+    Opens Resolve's Project Settings dialog and applies whichever settings
+    are requested in a single dialog session:
 
-    This is necessary because some Resolve versions treat the playback
-    frame rate setting as read-only via the scripting API.
+    - frame_rate: set the Playback frame rate text field (text field 3 in group 1)
+    - set_quad_split: click "Square Division Quad Split (SQ)" radio button
+
+    Save/Cancel buttons are direct children of the window (NOT inside group 1).
+    The dialog is ALWAYS closed before returning (Save if changed, Cancel if not)
+    so it never blocks subsequent Resolve API calls.
+
+    Returns:
+        "SAVED"     — at least one change was made and saved
+        "UNCHANGED" — dialog opened but nothing needed changing
+        "ERROR:..." — something went wrong, dialog closed via Cancel
+        None        — AppleScript failed entirely (accessibility, timeout, etc.)
     """
+    # Build the AppleScript body dynamically based on what needs setting
+    set_steps = []
+
+    if frame_rate is not None:
+        set_steps.append(f'''
+            -- Set playback frame rate (text field 3 in group 1)
+            try
+                set value of text field 3 of group 1 to "{frame_rate}"
+            end try
+            delay 0.2
+            try
+                click text field 3 of group 1
+            end try
+            delay 0.1
+            -- Tab to commit the field value
+            key code 48
+            delay 0.3''')
+
+    if set_quad_split:
+        set_steps.append('''
+            -- Set 4K/8K format to Square Division Quad Split (SQ)
+            try
+                click radio button "Square Division Quad Split (SQ)" of group 1
+            on error
+                try
+                    set rbs to every radio button of group 1
+                    repeat with rb in rbs
+                        if name of rb contains "Square" then
+                            click rb
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+            end try
+            delay 0.3''')
+
+    if not set_steps:
+        return "UNCHANGED"
+
+    steps_block = "\n".join(set_steps)
+
     script = f'''
 tell application "DaVinci Resolve"
     activate
@@ -78,59 +128,48 @@ tell application "System Events"
         set frontmost to true
         delay 0.3
 
-        -- Open Project Settings
-        click menu item "Project Settings…" of menu 1 of menu bar item "File" of menu bar 1
+        -- Open Project Settings (one time)
+        click menu item "Project Settings\u2026" of menu 1 of menu bar item "File" of menu bar 1
         delay 1.5
 
         tell window "Project Settings"
-            tell group 1
-                -- Direct value set on Playback frame rate (text field 3).
-                -- Wrapped in try so a UI shift on a text field index doesn't
-                -- abort before we reach the Save/Cancel safety net below.
-                try
-                    set value of text field 3 to "{frame_rate}"
-                end try
-                delay 0.2
+{steps_block}
 
-                -- Focus the field and defocus via Tab (UI-position-independent —
-                -- avoids depending on a specific static text index that shifts
-                -- between Resolve versions).
-                try
-                    click text field 3
-                end try
-                delay 0.1
-            end tell
-            -- Tab outside the group so the field commits.
-            key code 48
-            delay 0.5
-
-            -- Click Save if it is enabled (i.e. Resolve detected a change),
-            -- otherwise click Cancel. EITHER WAY, the dialog must close —
-            -- if it stays open it blocks every subsequent Resolve API call.
+            -- Save/Cancel are direct children of the window (NOT inside group 1).
+            -- Resolve uses Qt, so the `enabled` property of buttons returns
+            -- missing value via System Events. Instead, click Save directly —
+            -- if it's disabled (no changes detected) the click is a no-op and
+            -- the window stays open, so we follow up with Cancel to ensure
+            -- the dialog always closes.
             try
-                if enabled of button "Save" then
-                    click button "Save"
-                    delay 0.5
-                    return "SAVED"
-                else
-                    click button "Cancel"
-                    delay 0.5
+                click button "Save"
+                delay 0.5
+            end try
+            -- If the window is still open (Save was disabled / no-op), Cancel it
+            try
+                if exists window "Project Settings" then
+                    click button "Cancel" of window "Project Settings"
+                    delay 0.3
                     return "UNCHANGED"
                 end if
-            on error errMsg
-                -- Defensive: if anything goes sideways trying to read the
-                -- Save button state, force-close via Cancel so we never
-                -- leave a modal dialog blocking Resolve.
-                try
-                    click button "Cancel"
-                end try
-                return "ERROR:" & errMsg
             end try
+            return "SAVED"
         end tell
     end tell
 end tell
 '''
-    result = _run_applescript(script)
+    return _run_applescript(script)
+
+
+def set_playback_frame_rate(frame_rate: str) -> bool:
+    """Set the Playback frame rate in Project Settings via UI automation.
+
+    Convenience wrapper around set_project_settings_via_ui for callers
+    that only need the frame rate. When both frame rate AND 4K/8K format
+    need setting, call set_project_settings_via_ui directly to open the
+    dialog only once.
+    """
+    result = set_project_settings_via_ui(frame_rate=frame_rate)
     if result == "SAVED":
         console.print(f"  Playback frame rate set to {frame_rate} (via UI automation)")
         return True
@@ -143,72 +182,16 @@ end tell
         console.print(
             f"  [yellow]UI automation hit an error, dialog closed via Cancel: {result[6:]}[/yellow]"
         )
-    # Silent fall-through: the timeline frame rate is already set via the
-    # Resolve API, so the playback monitor will inherit it. The UI-automation
-    # path is best-effort and only matters when Resolve's API treats
-    # `timelinePlaybackFrameRate` as read-only on this version.
     return False
 
 
 def set_4k8k_quad_split() -> bool:
     """Set the 4K/8K format to Square Division Quad Split (SQ) via UI automation.
 
-    Opens Project Settings, clicks the "Square Division Quad Split (SQ)"
-    radio button in the Video Monitoring section, and clicks Save.
-
-    Only called as a fallback when the Resolve scripting API can't set
-    this setting (the API key isn't publicly documented).
+    Convenience wrapper around set_project_settings_via_ui for callers
+    that only need the 4K/8K format.
     """
-    script = '''
-tell application "DaVinci Resolve"
-    activate
-end tell
-delay 0.5
-tell application "System Events"
-    tell process "DaVinci Resolve"
-        set frontmost to true
-        delay 0.3
-
-        -- Open Project Settings
-        click menu item "Project Settings\u2026" of menu 1 of menu bar item "File" of menu bar 1
-        delay 1.5
-
-        tell window "Project Settings"
-            -- The "Square Division Quad Split (SQ)" radio button is in the
-            -- Video Monitoring section. Radio buttons are indexed within their
-            -- group; SQ is the first of the pair (SI is the second).
-            try
-                click radio button "Square Division Quad Split (SQ)" of group 1
-            on error
-                -- Fallback: try by index (radio button 1 = SQ, 2 = SI)
-                try
-                    click radio button 1 of group 1
-                end try
-            end try
-            delay 0.3
-
-            -- Save or Cancel (same safety pattern as set_playback_frame_rate)
-            try
-                if enabled of button "Save" then
-                    click button "Save"
-                    delay 0.5
-                    return "SAVED"
-                else
-                    click button "Cancel"
-                    delay 0.5
-                    return "UNCHANGED"
-                end if
-            on error errMsg
-                try
-                    click button "Cancel"
-                end try
-                return "ERROR:" & errMsg
-            end try
-        end tell
-    end tell
-end tell
-'''
-    result = _run_applescript(script)
+    result = set_project_settings_via_ui(set_quad_split=True)
     if result == "SAVED":
         console.print("  4K/8K format set to Square Division (SQ) via UI automation")
         return True

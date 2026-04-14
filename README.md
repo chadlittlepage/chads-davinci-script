@@ -13,30 +13,23 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 [![CI](https://github.com/chadlittlepage/chads-davinci-script/actions/workflows/ci.yml/badge.svg)](https://github.com/chadlittlepage/chads-davinci-script/actions)
 
-## What's New in v0.3.0
+## What's New in v0.3.1
 
-- **Fully themed dialogs** — Save Preset, Delete Preset confirmation,
-  pre-flight warnings, and in-app menu dialogs now match the dark theme
-  of the main picker. No more light-mode system popups.
-- **Correct menu bar name** — the top-left menu bar now says
-  "Chad's DaVinci Script" instead of "Python" when running in dev mode
-  (uses `NSProcessInfo.setProcessName_`).
-- **Reset Defaults actually resets extras** — clicking Reset Defaults now
-  removes custom "+ Add Video Track" rows along with wiping settings.
-- **Quadrant Settings dialog** (`Shift+Cmd+Q`) — fine-tune Pan, Tilt, and
-  Zoom values for each of the 4 quad tracks plus any extras.
-- **Hardened resolution parsing** — malformed source resolution strings
-  in corrupted presets no longer crash the build; the parser falls back
-  to 1920x1080 with a warning.
-- **Safer JSON enum handling** — unknown role strings in saved settings
-  are skipped with a warning instead of raising KeyError.
-- **Thread-safe connection state** — routing and label arrays are now
-  protected by a `threading.Lock()`.
-- **macOS 15 Sequoia compatibility** — all deprecated
-  `activateIgnoringOtherApps_` calls now use the modern `NSApp.activate()`
-  API with the deprecated call as fallback across all 8 call sites.
-- **Memory leak fixes** — `_RETAINED` module-level lists for About and
-  Manual windows now clear stale entries when re-opened.
+- **macOS 15/16 compatibility** — deprecated APIs replaced with modern
+  equivalents (`NSApp.activate`, `UTType`, `public.file-url` drag types).
+  Crash hardening for PyObjC pointer authentication traps.
+- **4K/8K format set to Square Division (SQ)** — automatically set via
+  UI automation when the Resolve API can't handle it directly.
+- **Combined UI automation** — playback frame rate and 4K/8K format are
+  now set in a single Project Settings dialog open.
+- **Settings dialog** (`Shift+Cmd+Q`, renamed from "Quadrant Settings") —
+  fine-tune Pan, Tilt, and Zoom values for each quad track plus extras.
+  New "Skip V1 quadrant templates" option for faster builds.
+- **Conditional `NSFilenamesPboardType`** — deprecated pasteboard type
+  is now imported optionally with `public.file-url` as the primary
+  drag type.
+- **Missing py2app modules fixed** — `quadrant_settings` and `theme`
+  modules were not included in previous builds.
 
 ## Features
 
@@ -108,6 +101,8 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 - Sets timeline frame rate (23.976 / 24 / 25 / 29.97 / 30 / 48 / 50 /
   59.94 / 60)
 - Sets playback frame rate via API or AppleScript fallback
+- Sets 4K/8K format to Square Division Quad Split (SQ) via API or
+  AppleScript fallback
 - Sets video monitoring (4:4:4 SDI, Quad link, Full data levels,
   12-bit → 10-bit → 8-bit fallback chain)
 - Sets color management (DaVinci YRGB, configurable Timeline + Output
@@ -309,7 +304,9 @@ one-time secret setup.
     ├── progress_window.py      # floating NSPanel build progress UI
     ├── resolve_connection.py   # all DaVinci Resolve API calls
     ├── settings_io.py          # user settings + presets persistence
-    └── ui_automation.py        # AppleScript playback frame rate fallback
+    ├── quadrant_settings.py    # Settings dialog (track transforms, build options)
+    ├── theme.py                # shared dark-theme colors
+    └── ui_automation.py        # AppleScript fallback for Resolve settings
 ```
 
 See [`MAINTAINING.md`](MAINTAINING.md) for the full developer guide
