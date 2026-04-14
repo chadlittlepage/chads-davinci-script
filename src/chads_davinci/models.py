@@ -132,7 +132,6 @@ def get_quad_transforms(
 
     Q1 top-left, Q2 top-right, Q3 bottom-left, Q4 bottom-right.
     """
-    role_map = {r.name: r for r in TrackRole}
     result: dict[TrackRole, QuadTransform] = {}
 
     for role in SELECTABLE_TRACKS:

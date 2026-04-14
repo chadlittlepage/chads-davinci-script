@@ -13,7 +13,6 @@ from AppKit import (
     NSApp,
     NSBackingStoreBuffered,
     NSButton,
-    NSColor,
     NSFont,
     NSMakeRect,
     NSMakeSize,

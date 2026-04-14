@@ -57,8 +57,7 @@ from chads_davinci.models import (
     TrackRole,
 )
 from chads_davinci.theme import (
-    BG_DARK, BG_DARK_CG, BG_PANEL, FIELD_BG, FIELD_BG_CG,
-    GREEN, RED, SEPARATOR_CG, TEXT_DIM, TEXT_WHITE,
+    BG_DARK, FIELD_BG, GREEN, RED, SEPARATOR_CG, TEXT_DIM, TEXT_WHITE,
 )
 
 # Module-level reference to the active picker controller. Used by menu
@@ -1776,7 +1775,6 @@ def _prewarm_resolve_in_background() -> None:
     Skipped entirely if Resolve is already running — does NOT touch the
     user's open project, only launches the app binary if needed.
     """
-    import subprocess
     import threading
     import time
     from chads_davinci.resolve_connection import _is_resolve_running, _reactivate_self
