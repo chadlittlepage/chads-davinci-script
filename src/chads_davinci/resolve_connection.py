@@ -312,6 +312,25 @@ def set_project_settings(
     # Video monitoring options for Dolby Vision testing
     project.SetSetting("videoMonitorUse444SDI", "1")
     project.SetSetting("videoMonitorSDIConfiguration", "quad_link")
+    # 4K and 8K formats: Square Division Quad Split (SQ), not Sample Interleave (SI).
+    # Try known key names — Resolve's API isn't publicly documented for this setting.
+    # If the API can't set it, build_main falls back to UI automation (AppleScript).
+    sq_set = False
+    for key, val in [
+        ("videoMonitor4K8KTransport", "square_division"),
+        ("videoMonitorSDI4KTransport", "square_division"),
+        ("videoMonitorQuadSplitMode", "square_division"),
+    ]:
+        if project.SetSetting(key, val):
+            sq_set = True
+            console.print(f"  [dim]4K/8K transport set via key '{key}'[/dim]")
+            break
+    if not sq_set:
+        console.print(
+            "  [yellow]Could not set 4K/8K format to SQ via API — "
+            "will fall back to UI automation[/yellow]"
+        )
+    ctx._sq_set_via_api = sq_set  # type: ignore[attr-defined]
     project.SetSetting("videoDataLevels", "Full")
 
     # Try 12-bit (requires compatible SDI hardware), fall back to 10-bit, then 8-bit
@@ -326,7 +345,7 @@ def set_project_settings(
 
     console.print(f"Project settings: {tl_w}x{tl_h} @ {frame_rate}fps (source: {source_resolution})")
     console.print(f"  Video monitoring: {monitor_fmt} ({'set' if r_monitor else 'failed'})")
-    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, Data levels: Full")
+    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, 4K/8K: SQ, Data levels: Full")
     console.print(f"  Video bit depth: {actual_depth} bit (12 attempted, requires SDI hardware)")
     console.print(
         f"  Color: DaVinci YRGB, Timeline: {timeline_color_space}, Output: {output_color_space}"

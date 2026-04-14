@@ -148,3 +148,75 @@ end tell
     # path is best-effort and only matters when Resolve's API treats
     # `timelinePlaybackFrameRate` as read-only on this version.
     return False
+
+
+def set_4k8k_quad_split() -> bool:
+    """Set the 4K/8K format to Square Division Quad Split (SQ) via UI automation.
+
+    Opens Project Settings, clicks the "Square Division Quad Split (SQ)"
+    radio button in the Video Monitoring section, and clicks Save.
+
+    Only called as a fallback when the Resolve scripting API can't set
+    this setting (the API key isn't publicly documented).
+    """
+    script = '''
+tell application "DaVinci Resolve"
+    activate
+end tell
+delay 0.5
+tell application "System Events"
+    tell process "DaVinci Resolve"
+        set frontmost to true
+        delay 0.3
+
+        -- Open Project Settings
+        click menu item "Project Settings\u2026" of menu 1 of menu bar item "File" of menu bar 1
+        delay 1.5
+
+        tell window "Project Settings"
+            -- The "Square Division Quad Split (SQ)" radio button is in the
+            -- Video Monitoring section. Radio buttons are indexed within their
+            -- group; SQ is the first of the pair (SI is the second).
+            try
+                click radio button "Square Division Quad Split (SQ)" of group 1
+            on error
+                -- Fallback: try by index (radio button 1 = SQ, 2 = SI)
+                try
+                    click radio button 1 of group 1
+                end try
+            end try
+            delay 0.3
+
+            -- Save or Cancel (same safety pattern as set_playback_frame_rate)
+            try
+                if enabled of button "Save" then
+                    click button "Save"
+                    delay 0.5
+                    return "SAVED"
+                else
+                    click button "Cancel"
+                    delay 0.5
+                    return "UNCHANGED"
+                end if
+            on error errMsg
+                try
+                    click button "Cancel"
+                end try
+                return "ERROR:" & errMsg
+            end try
+        end tell
+    end tell
+end tell
+'''
+    result = _run_applescript(script)
+    if result == "SAVED":
+        console.print("  4K/8K format set to Square Division (SQ) via UI automation")
+        return True
+    if result == "UNCHANGED":
+        console.print("  4K/8K format was already Square Division (SQ)")
+        return True
+    if result and result.startswith("ERROR:"):
+        console.print(
+            f"  [yellow]4K/8K UI automation error, dialog closed via Cancel: {result[6:]}[/yellow]"
+        )
+    return False

@@ -20,7 +20,7 @@ from chads_davinci import __version__
 from chads_davinci.file_picker import pick_files
 from chads_davinci.metadata import print_metadata_comparison
 from chads_davinci.models import MetadataConfig
-from chads_davinci.ui_automation import set_playback_frame_rate
+from chads_davinci.ui_automation import set_playback_frame_rate, set_4k8k_quad_split
 from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
@@ -418,6 +418,39 @@ def main() -> int:
                         "Continuing build…",
                         "Playback frame rate updated",
                     )
+
+    # Step 4b: 4K/8K format → Square Division Quad Split (SQ)
+    # The API-based set_project_settings tries first; if it couldn't find
+    # the right key, fall back to AppleScript (same pattern as frame rate).
+    sq_done = getattr(ctx, "_sq_set_via_api", False)
+    if not sq_done:
+        console.print()
+        console.print(
+            "  [dim]API couldn't set 4K/8K format; falling back to UI automation[/dim]"
+        )
+        if progress:
+            progress.set_status(
+                "Setting 4K/8K format via Resolve UI…",
+                "Resolve will briefly show its Project Settings dialog",
+            )
+            try:
+                progress.window.orderOut_(None)
+                progress.pump()
+            except Exception:
+                pass
+        try:
+            set_4k8k_quad_split()
+        finally:
+            if progress:
+                try:
+                    progress.window.orderFrontRegardless()
+                    progress.pump()
+                except Exception:
+                    pass
+                progress.set_status(
+                    "Continuing build…",
+                    "4K/8K format updated",
+                )
 
     # Step 5: Run bins/media/timeline (fresh Resolve API connection)
     console.print()
