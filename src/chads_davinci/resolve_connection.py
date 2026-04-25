@@ -305,6 +305,25 @@ def set_project_settings(
     # Video monitoring options for Dolby Vision testing
     project.SetSetting("videoMonitorUse444SDI", "1")
     project.SetSetting("videoMonitorSDIConfiguration", "quad_link")
+    # 4K and 8K formats: Square Division Quad Split (SQ), not Sample Interleave (SI).
+    # Try known key names — Resolve's API isn't publicly documented for this setting.
+    # If the API can't set it, build_main falls back to UI automation (AppleScript).
+    sq_set = False
+    for key, val in [
+        ("videoMonitor4K8KTransport", "square_division"),
+        ("videoMonitorSDI4KTransport", "square_division"),
+        ("videoMonitorQuadSplitMode", "square_division"),
+    ]:
+        if project.SetSetting(key, val):
+            sq_set = True
+            console.print(f"  [dim]4K/8K transport set via key '{key}'[/dim]")
+            break
+    if not sq_set:
+        console.print(
+            "  [yellow]Could not set 4K/8K format to SQ via API — "
+            "will fall back to UI automation[/yellow]"
+        )
+    ctx._sq_set_via_api = sq_set  # type: ignore[attr-defined]
     project.SetSetting("videoDataLevels", "Full")
 
     # Try 12-bit (requires compatible SDI hardware), fall back to 10-bit, then 8-bit
@@ -319,7 +338,7 @@ def set_project_settings(
 
     console.print(f"Project settings: {tl_w}x{tl_h} @ {frame_rate}fps (source: {source_resolution})")
     console.print(f"  Video monitoring: {monitor_fmt} ({'set' if r_monitor else 'failed'})")
-    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, Data levels: Full")
+    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, 4K/8K: SQ, Data levels: Full")
     console.print(f"  Video bit depth: {actual_depth} bit (12 attempted, requires SDI hardware)")
     console.print(
         f"  Color: DaVinci YRGB, Timeline: {timeline_color_space}, Output: {output_color_space}"
@@ -349,11 +368,18 @@ def create_bin_structure(
         # Navigate to root first
         media_pool.SetCurrentFolder(root_folder)
 
-        # Create top-level bin
-        top_folder = media_pool.AddSubFolder(root_folder, top_bin)
-        if top_folder is None:
-            # May already exist, try to find it
+        # Create top-level bin (retry on failure — API sometimes needs a moment)
+        import time as _time
+        top_folder = None
+        for _try in range(3):
+            top_folder = media_pool.AddSubFolder(root_folder, top_bin)
+            if top_folder is not None:
+                break
             top_folder = _find_subfolder(root_folder, top_bin)
+            if top_folder is not None:
+                break
+            if _try < 2:
+                _time.sleep(1)
         if top_folder is None:
             console.print(f"  [red]Failed to create bin: {top_bin}[/red]")
             continue
@@ -444,40 +470,51 @@ def _import_one_file(media_pool: Any, media_storage: Any, file_str: str) -> Any 
                 f"{e} — falling back to per-file ImportMedia[/yellow]"
             )
 
-    # Method 1: MediaPool.ImportMedia (the primary path)
-    try:
-        imported = media_pool.ImportMedia([file_str])
-        if imported and len(imported) > 0:
-            return imported[0]
-    except Exception as e:
-        console.print(f"  [yellow]ImportMedia raised: {e}[/yellow]")
+    # Retry loop — the Resolve API sometimes fails on the first attempt
+    # after a fresh subprocess connection. A short delay + retry fixes it.
+    import time as _time
+    for attempt in range(3):
+        if attempt > 0:
+            console.print(f"  [dim]Import retry {attempt + 1}/3 after 2s delay...[/dim]")
+            _time.sleep(2)
 
-    # Method 2: MediaStorage.AddItemListToMediaPool (sequence-detection-free fallback)
-    if media_storage is not None:
+        # Method 1: MediaPool.ImportMedia (the primary path)
         try:
-            imported = media_storage.AddItemListToMediaPool(file_str)
+            imported = media_pool.ImportMedia([file_str])
+            if imported and len(imported) > 0:
+                return imported[0]
+        except Exception as e:
+            if attempt == 0:
+                console.print(f"  [yellow]ImportMedia raised: {e}[/yellow]")
+
+        # Method 2: MediaStorage.AddItemListToMediaPool (sequence-detection-free fallback)
+        if media_storage is not None:
+            try:
+                imported = media_storage.AddItemListToMediaPool(file_str)
+                if imported and len(imported) > 0:
+                    console.print(
+                        "  [dim]ImportMedia returned empty; succeeded via "
+                        "MediaStorage.AddItemListToMediaPool fallback[/dim]"
+                    )
+                    return imported[0]
+            except Exception as e:
+                if attempt == 0:
+                    console.print(
+                        f"  [yellow]AddItemListToMediaPool raised: {e}[/yellow]"
+                    )
+
+        # Method 3: ImportMedia with a clip-info dict (forces single-file mode)
+        try:
+            imported = media_pool.ImportMedia([{"FilePath": file_str}])
             if imported and len(imported) > 0:
                 console.print(
-                    "  [dim]ImportMedia returned empty; succeeded via "
-                    "MediaStorage.AddItemListToMediaPool fallback[/dim]"
+                    "  [dim]ImportMedia(list) returned empty; succeeded via "
+                    "ImportMedia(dict) fallback[/dim]"
                 )
                 return imported[0]
         except Exception as e:
-            console.print(
-                f"  [yellow]AddItemListToMediaPool raised: {e}[/yellow]"
-            )
-
-    # Method 3: ImportMedia with a clip-info dict (forces single-file mode)
-    try:
-        imported = media_pool.ImportMedia([{"FilePath": file_str}])
-        if imported and len(imported) > 0:
-            console.print(
-                "  [dim]ImportMedia(list) returned empty; succeeded via "
-                "ImportMedia(dict) fallback[/dim]"
-            )
-            return imported[0]
-    except Exception as e:
-        console.print(f"  [yellow]ImportMedia(dict) raised: {e}[/yellow]")
+            if attempt == 0:
+                console.print(f"  [yellow]ImportMedia(dict) raised: {e}[/yellow]")
 
     return None
 
