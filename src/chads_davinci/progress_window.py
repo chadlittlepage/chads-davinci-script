@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from AppKit import (
     NSBackingStoreBuffered,
+    NSColor,
     NSFont,
     NSMakeRect,
     NSPanel,

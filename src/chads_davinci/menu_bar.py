@@ -43,7 +43,7 @@ class MenuTarget(NSObject):
         panel = NSSavePanel.savePanel()
         panel.setNameFieldStringValue_("ChadsDaVinciScript_settings.json")
         panel.setMessage_("Export all settings to a JSON file")
-        _set_panel_file_types(panel, ["json"])
+        panel.setAllowedFileTypes_(["json"])
 
         if panel.runModal():
             url = panel.URL()
@@ -78,7 +78,7 @@ class MenuTarget(NSObject):
         panel.setMessage_(
             "Save the console log file. Email it to support if there's a crash."
         )
-        _set_panel_file_types(panel, ["log", "txt"])
+        panel.setAllowedFileTypes_(["log", "txt"])
 
         if panel.runModal():
             url = panel.URL()
@@ -112,7 +112,7 @@ class MenuTarget(NSObject):
             import traceback
             tb = traceback.format_exc()
             print(f"[quadrant_settings] ERROR: {e}\n{tb}", flush=True)
-            _show_dialog("Settings Error", f"{e}\n\n{tb}")
+            _show_dialog("Quadrant Settings Error", f"{e}\n\n{tb}")
 
     def importSettings_(self, sender):
         """Show open panel and import settings from JSON."""
@@ -124,7 +124,7 @@ class MenuTarget(NSObject):
         panel.setCanChooseDirectories_(False)
         panel.setAllowsMultipleSelection_(False)
         panel.setMessage_("Choose a settings JSON file to import")
-        _set_panel_file_types(panel, ["json"])
+        panel.setAllowedFileTypes_(["json"])
 
         if panel.runModal():
             urls = panel.URLs()
@@ -135,29 +135,6 @@ class MenuTarget(NSObject):
                 if ok:
                     msg += "\nReopen the picker for changes to take effect."
                 _show_dialog(title, msg)
-
-
-def _set_panel_file_types(panel, extensions: list[str]) -> None:
-    """Set allowed file types on an NSSavePanel / NSOpenPanel.
-
-    Uses the modern setAllowedContentTypes_ API (macOS 11+) when
-    available, falling back to the deprecated setAllowedFileTypes_
-    for older systems.
-    """
-    try:
-        from UniformTypeIdentifiers import UTType
-        types = []
-        for ext in extensions:
-            t = UTType.typeWithFilenameExtension_(ext)
-            if t is not None:
-                types.append(t)
-        if types:
-            panel.setAllowedContentTypes_(types)
-            return
-    except (ImportError, Exception):
-        pass
-    # Fallback for macOS < 11 or missing framework
-    panel.setAllowedFileTypes_(extensions)
 
 
 def _show_dialog(title: str, message: str) -> None:
@@ -282,7 +259,7 @@ def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
     file_menu.addItem_(NSMenuItem.separatorItem())
 
     quad_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        "Settings\u2026", "showQuadrantSettings:", "Q"
+        "Quadrant Settings\u2026", "showQuadrantSettings:", "Q"
     )
     quad_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
     quad_item.setTarget_(target)

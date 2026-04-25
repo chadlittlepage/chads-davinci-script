@@ -20,7 +20,7 @@ from chads_davinci import __version__
 from chads_davinci.file_picker import pick_files
 from chads_davinci.metadata import print_metadata_comparison
 from chads_davinci.models import MetadataConfig
-from chads_davinci.ui_automation import set_project_settings_via_ui
+from chads_davinci.ui_automation import set_playback_frame_rate
 from chads_davinci.resolve_connection import (
     connect,
     set_project_settings,
@@ -353,17 +353,23 @@ def main() -> int:
 
     # Step 4: Set the playback frame rate.
     #
-    # Step 4b: Playback frame rate + 4K/8K format via UI automation
+    # The Resolve API treats `timelinePlaybackFrameRate` as read-only on
+    # most Resolve versions, so SetSetting() returns falsy and the
+    # playback monitor stays at Resolve's default (e.g. 24) even though
+    # the timeline frame rate is correctly set to (e.g.) 23.976.
     #
-    # Both settings may be read-only via the Resolve scripting API.
-    # We determine which ones need UI automation, then open the Project
-    # Settings dialog ONCE, apply everything, and Save ONCE.
+    # If the API call doesn't take effect, fall back to UI automation
+    # via AppleScript. The AppleScript opens Resolve's Project Settings
+    # dialog, sets the field, and clicks Save (or Cancel if Save is
+    # disabled because the value was already correct — see
+    # ui_automation.set_playback_frame_rate for details).
     #
-    # The progress panel is hidden while the AppleScript runs because
-    # Resolve is Qt and its modal dialogs bypass AppKit's window levels.
+    # We HIDE the progress panel before running the AppleScript so it
+    # isn't covered by the Project Settings dialog (Resolve is Qt and
+    # its modals bypass AppKit's window level hierarchy), then SHOW it
+    # again afterward.
     console.print()
     desired = str(picker_result.frame_rate)
-    need_fps_ui = False
     try:
         current_playback = str(ctx.project.GetSetting("timelinePlaybackFrameRate") or "")
     except Exception:
@@ -382,59 +388,36 @@ def main() -> int:
         if current_playback == desired:
             console.print(f"  Playback frame rate set to {desired} via API")
         else:
+            # Fall back to AppleScript UI automation. Hide the progress
+            # panel briefly so it doesn't get covered by the Project
+            # Settings dialog, run the script, then re-show.
             console.print(
                 f"  [dim]API couldn't set playback frame rate "
-                f"(still {current_playback}); queuing for UI automation[/dim]"
+                f"(still {current_playback}); falling back to UI automation[/dim]"
             )
-            need_fps_ui = True
-
-    need_sq_ui = not getattr(ctx, "_sq_set_via_api", False)
-    if need_sq_ui:
-        console.print("  [dim]4K/8K format needs UI automation[/dim]")
-
-    if need_fps_ui or need_sq_ui:
-        parts = []
-        if need_fps_ui:
-            parts.append("playback frame rate")
-        if need_sq_ui:
-            parts.append("4K/8K format")
-        desc = " + ".join(parts)
-        console.print(f"  [dim]Opening Project Settings once for: {desc}[/dim]")
-
-        if progress:
-            progress.set_status(
-                f"Setting {desc} via Resolve UI…",
-                "Resolve will briefly show its Project Settings dialog",
-            )
-            try:
-                progress.window.orderOut_(None)
-                progress.pump()
-            except Exception:
-                pass
-        try:
-            result = set_project_settings_via_ui(
-                frame_rate=desired if need_fps_ui else None,
-                set_quad_split=need_sq_ui,
-            )
-            if result == "SAVED":
-                console.print(f"  UI automation: {desc} saved")
-            elif result == "UNCHANGED":
-                console.print(f"  UI automation: {desc} already correct")
-            elif result and result.startswith("ERROR:"):
-                console.print(
-                    f"  [yellow]UI automation error ({desc}), "
-                    f"dialog closed via Cancel: {result[6:]}[/yellow]"
-                )
-            else:
-                console.print(f"  [yellow]Could not set {desc} via UI automation[/yellow]")
-        finally:
             if progress:
+                progress.set_status(
+                    "Setting playback frame rate via Resolve UI…",
+                    "Resolve will briefly show its Project Settings dialog",
+                )
                 try:
-                    progress.window.orderFrontRegardless()
+                    progress.window.orderOut_(None)
                     progress.pump()
                 except Exception:
                     pass
-                progress.set_status("Continuing build…")
+            try:
+                set_playback_frame_rate(desired)
+            finally:
+                if progress:
+                    try:
+                        progress.window.orderFrontRegardless()
+                        progress.pump()
+                    except Exception:
+                        pass
+                    progress.set_status(
+                        "Continuing build…",
+                        "Playback frame rate updated",
+                    )
 
     # Step 5: Run bins/media/timeline (fresh Resolve API connection)
     console.print()

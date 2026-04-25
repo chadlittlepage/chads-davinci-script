@@ -76,7 +76,6 @@ def run_build(data: dict) -> None:
     custom_quad = load_quadrant_settings()
     custom_tracks = custom_quad.get("tracks") if custom_quad else None
     models.QUAD_TRANSFORMS = models.get_quad_transforms(tl_w, tl_h, custom=custom_tracks)
-    skip_v1 = (custom_quad or {}).get("skip_v1_templates", False)
 
     # Apply bin rename map to TRACK_BIN_MAP so renamed bins still get the right files
     bin_rename_map = data.get("bin_rename_map") or {}
@@ -118,7 +117,6 @@ def run_build(data: dict) -> None:
         timeline_name=timeline_name,
         track_names=track_names,
         start_timecode=start_timecode,
-        skip_v1_templates=skip_v1,
     )
 
     # Add any user-defined extra video tracks (imported into Master/Extras bin,

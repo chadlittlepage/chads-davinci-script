@@ -50,17 +50,10 @@ def _reactivate_self() -> None:
     so we periodically re-foreground ourselves while we wait for it.
     """
     try:
-        from AppKit import NSRunningApplication
-        app = NSRunningApplication.currentApplication()
-        if app is None:
-            return
-        # activate() is the modern API (macOS 14+). activateWithOptions_
-        # is deprecated but needed on macOS 13 and earlier.
-        if hasattr(app, "activate"):
-            app.activate()
-        else:
-            from AppKit import NSApplicationActivateIgnoringOtherApps
-            app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+        from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
+        NSRunningApplication.currentApplication().activateWithOptions_(
+            NSApplicationActivateIgnoringOtherApps
+        )
     except Exception:
         pass
 
@@ -312,25 +305,6 @@ def set_project_settings(
     # Video monitoring options for Dolby Vision testing
     project.SetSetting("videoMonitorUse444SDI", "1")
     project.SetSetting("videoMonitorSDIConfiguration", "quad_link")
-    # 4K and 8K formats: Square Division Quad Split (SQ), not Sample Interleave (SI).
-    # Try known key names — Resolve's API isn't publicly documented for this setting.
-    # If the API can't set it, build_main falls back to UI automation (AppleScript).
-    sq_set = False
-    for key, val in [
-        ("videoMonitor4K8KTransport", "square_division"),
-        ("videoMonitorSDI4KTransport", "square_division"),
-        ("videoMonitorQuadSplitMode", "square_division"),
-    ]:
-        if project.SetSetting(key, val):
-            sq_set = True
-            console.print(f"  [dim]4K/8K transport set via key '{key}'[/dim]")
-            break
-    if not sq_set:
-        console.print(
-            "  [yellow]Could not set 4K/8K format to SQ via API — "
-            "will fall back to UI automation[/yellow]"
-        )
-    ctx._sq_set_via_api = sq_set  # type: ignore[attr-defined]
     project.SetSetting("videoDataLevels", "Full")
 
     # Try 12-bit (requires compatible SDI hardware), fall back to 10-bit, then 8-bit
@@ -345,7 +319,7 @@ def set_project_settings(
 
     console.print(f"Project settings: {tl_w}x{tl_h} @ {frame_rate}fps (source: {source_resolution})")
     console.print(f"  Video monitoring: {monitor_fmt} ({'set' if r_monitor else 'failed'})")
-    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, 4K/8K: SQ, Data levels: Full")
+    console.print("  4:4:4 SDI: enabled, SDI config: Quad link, Data levels: Full")
     console.print(f"  Video bit depth: {actual_depth} bit (12 attempted, requires SDI hardware)")
     console.print(
         f"  Color: DaVinci YRGB, Timeline: {timeline_color_space}, Output: {output_color_space}"
@@ -599,7 +573,6 @@ def create_quad_timeline(
     timeline_name: str = "Dolby Quad View",
     track_names: dict[TrackRole, str] | None = None,
     start_timecode: str = "00:00:00:00",
-    skip_v1_templates: bool = False,
 ) -> Any:
     """Create a timeline with 7 video tracks and quad transforms applied."""
     media_pool = ctx.media_pool
@@ -629,7 +602,7 @@ def create_quad_timeline(
         _apply_track_names(ctx, track_names)
 
     # Place clips on tracks and apply transforms
-    _place_clips_on_tracks(ctx, assignments, media_items, skip_v1_templates=skip_v1_templates)
+    _place_clips_on_tracks(ctx, assignments, media_items)
 
     return timeline
 
@@ -650,7 +623,6 @@ def _place_clips_on_tracks(
     ctx: ResolveContext,
     assignments: list[TrackAssignment],
     media_items: dict[TrackRole, Any],
-    skip_v1_templates: bool = False,
 ) -> None:
     """Place media items on their assigned tracks and apply quad transforms.
 
@@ -667,13 +639,10 @@ def _place_clips_on_tracks(
 
     # Create V1 transform templates FIRST (InsertGenerator ripple-pushes all tracks,
     # so we do it before placing any media clips). Duration from media pool items.
-    if skip_v1_templates:
-        console.print("  [dim]Skipping V1 quadrant templates (disabled in Settings)[/dim]")
-    else:
-        for assignment in assignments:
-            if assignment.role == TrackRole.QUAD_TEMPLATE:
-                _create_transform_templates(ctx, assignment.track_number, media_items)
-                break
+    for assignment in assignments:
+        if assignment.role == TrackRole.QUAD_TEMPLATE:
+            _create_transform_templates(ctx, assignment.track_number, media_items)
+            break
 
     # Place media clips on V2-V7, compensating for ripple offset
     for assignment in assignments:

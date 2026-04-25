@@ -13,6 +13,7 @@ from AppKit import (
     NSApp,
     NSBackingStoreBuffered,
     NSButton,
+    NSColor,
     NSFont,
     NSMakeRect,
     NSMakeSize,
@@ -67,9 +68,8 @@ WHAT'S NEW IN v0.3.0
   • The menu bar now correctly shows "Chad's DaVinci Script" at the
     top-left instead of "Python" when running in dev mode.
 
-  • Settings dialog (Shift+Cmd+Q) — edit the pan/tilt and
+  • Quadrant Settings dialog (Shift+Cmd+Q) — edit the pan/tilt and
     zoom values for each of the 4 quadrants plus any extra tracks.
-    Option to skip V1 quadrant templates for faster builds.
     Changes apply the next time you build.
 
   • Hardened resolution parsing throughout — malformed source
@@ -83,15 +83,9 @@ WHAT'S NEW IN v0.3.0
   • Thread-safe label and routing array access during background
     metadata extraction.
 
-  • macOS 15/16 compatibility — deprecated APIs replaced with modern
-    equivalents (NSApp.activate, UTType, public.file-url drag types).
-    Crash hardening for PyObjC pointer authentication traps.
-
-  • 4K/8K format automatically set to Square Division Quad Split (SQ)
-    via UI automation when the Resolve API can't set it directly.
-
-  • Playback frame rate and 4K/8K format are now set in a single
-    Project Settings dialog open (no more double-opening).
+  • macOS 15 Sequoia compatibility — all deprecated
+    activateIgnoringOtherApps_ calls now use the modern
+    NSApp.activate() API with the deprecated call as fallback.
 
   • Memory leak fixes — module-level retention lists for About and
     Manual windows now clear stale entries when re-opened instead of
@@ -319,22 +313,16 @@ factory reset in one click:
   • Wipes user_settings.json and bin_structure.json
   • Removes EVERY extra track row you added
   • Re-populates all form fields with the factory defaults
-  • If Settings is open, it refreshes to show the cleared extras
+  • If Quadrant Settings is open, it refreshes to show the cleared extras
 Use this if your saved state ever gets into a strange shape, or to start
 a clean configuration for a new client preset.
 
 
-SETTINGS (Shift+Cmd+Q)
-Open from File > Settings… or via Shift+Cmd+Q. This dialog
+QUADRANT SETTINGS (Shift+Cmd+Q)
+Open from File > Quadrant Settings… or via Shift+Cmd+Q. This dialog
 lets you fine-tune the Pan, Tilt, and Zoom values applied to each of
 the 4 quad tracks (V3 HW2 300 nit, V4 L1SHW 300, V5 HW2 795 Stretch,
 V6 L1SHW 795 Stretch) plus any extra tracks you've added.
-
-Build options:
-  • Skip V1 quadrant templates — when checked, the build will not
-    generate the Solid Color compound clips on V1. This saves
-    significant build time if you don't need the quadrant reference
-    overlays.
 
 Default quad transforms:
   • Q1 Top-Left:     Pan −Width/4, Tilt +Height/4
@@ -747,7 +735,7 @@ KEYBOARD SHORTCUTS
   Cmd+Q                       Quit
   Shift+Cmd+E                 File > Export Settings…
   Shift+Cmd+I                 File > Import Settings…
-  Shift+Cmd+Q                 File > Settings…
+  Shift+Cmd+Q                 File > Quadrant Settings…
   Cmd+?                       Help > Chad's DaVinci Script Help
   Return (when picker is up)  OK (build the project)
 

@@ -27,12 +27,12 @@ class TrackRole(Enum):
 
 # Tracks the user selects files for (V1 Quad Template is auto-generated)
 SELECTABLE_TRACKS = [
-    TrackRole.REEL_SOURCE,
-    TrackRole.L1SHW_795_STRETCH_1500,
-    TrackRole.HW2_795_STRETCH_1500,
-    TrackRole.L1SHW_300,
-    TrackRole.HW2_300_NIT,
     TrackRole.L1SHW_HDMI,
+    TrackRole.HW2_300_NIT,
+    TrackRole.L1SHW_300,
+    TrackRole.HW2_795_STRETCH_1500,
+    TrackRole.L1SHW_795_STRETCH_1500,
+    TrackRole.REEL_SOURCE,
 ]
 
 REQUIRED_TRACKS = {
@@ -132,6 +132,7 @@ def get_quad_transforms(
 
     Q1 top-left, Q2 top-right, Q3 bottom-left, Q4 bottom-right.
     """
+    role_map = {r.name: r for r in TrackRole}
     result: dict[TrackRole, QuadTransform] = {}
 
     for role in SELECTABLE_TRACKS:
