@@ -986,6 +986,7 @@ def add_text_overlays(
     resolve: Any,
     timeline: Any,
     title_tracks: dict[str, str],
+    title_style: dict | None = None,
 ) -> None:
     """Add text overlays to video clips via AddFusionComp.
 
@@ -998,9 +999,34 @@ def add_text_overlays(
         title_tracks: Dict mapping role name (e.g. "REEL_SOURCE") or
                       extra key (e.g. "extra:My Track") to the text
                       to overlay.
+        title_style: Optional dict with font/size/color/placement overrides.
     """
     if not title_tracks:
         return
+
+    # Title style defaults
+    from chads_davinci.quadrant_settings import (
+        TITLE_STYLE_DEFAULTS, TITLE_COLORS, TITLE_PLACEMENTS, pt_to_fusion_size,
+    )
+    ts = dict(TITLE_STYLE_DEFAULTS)
+    if title_style:
+        ts.update(title_style)
+    font_name = ts.get("font", "Helvetica Neue")
+    # Convert point size to Fusion size; handle legacy "size" key
+    if "size_pt" in ts:
+        font_size = pt_to_fusion_size(int(ts["size_pt"]))
+    elif "size" in ts:
+        font_size = float(ts["size"])
+    else:
+        font_size = pt_to_fusion_size(24)
+    color_name = ts.get("color", "White")
+    color_rgb = TITLE_COLORS.get(color_name, (1.0, 1.0, 1.0))
+    placement_name = ts.get("placement", "Lower Right")
+    placement_xy = TITLE_PLACEMENTS.get(placement_name, [0.85, 0.08])
+    console.print(
+        f"  Style: {font_name} {ts.get('size_pt', '?')}pt, "
+        f"{color_name}, {placement_name}"
+    )
 
     total_tracks = timeline.GetTrackCount("video")
     role_to_track: dict[str, int] = {}
@@ -1047,13 +1073,13 @@ def add_text_overlays(
             continue
 
         text_tool.SetInput("StyledText", title_text)
-        text_tool.SetInput("Center", [0.85, 0.08])
-        text_tool.SetInput("Font", "Open Sans")
+        text_tool.SetInput("Center", placement_xy)
+        text_tool.SetInput("Font", font_name)
         text_tool.SetInput("Style", "Regular")
-        text_tool.SetInput("Size", 0.032)
-        text_tool.SetInput("Red1", 1.0)
-        text_tool.SetInput("Green1", 1.0)
-        text_tool.SetInput("Blue1", 1.0)
+        text_tool.SetInput("Size", font_size)
+        text_tool.SetInput("Red1", color_rgb[0])
+        text_tool.SetInput("Green1", color_rgb[1])
+        text_tool.SetInput("Blue1", color_rgb[2])
         text_tool.SetInput("Alpha1", 1.0)
 
         merge = comp.AddTool("Merge", -32768, -32768)

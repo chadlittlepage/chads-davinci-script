@@ -53,43 +53,45 @@ HDR metadata testing. In one click it will:
 You can also run a metadata-only mode that skips the Resolve build entirely.
 
 
-WHAT'S NEW IN v0.3.0
+WHAT'S NEW IN v0.3.4
 
-  • Reset Defaults now properly clears all custom tracks you added via
-    "+ Add Video Track" along with the saved settings. Previously the
-    extras remained on screen after a reset.
+  • Video track text overlays — check the "T" box next to any track
+    to burn the track name into the video via Fusion TextPlus. No
+    Fusion page switch required (uses AddFusionComp from Edit page).
+    Works for built-in tracks and extra tracks.
 
-  • All dialogs and alerts now match the dark theme of the main picker
-    (Save Preset, Delete Preset confirmation, pre-flight warnings, and
-    in-app menu dialogs). No more light-mode system popups breaking
-    the visual consistency.
+  • Title Style settings (Cmd+,) — choose font (20 standard macOS
+    fonts), point size (10-72pt), color (White/Yellow/Cyan/Green/Red/
+    Orange/Black), and placement (Lower Right, Lower Left, Upper Right,
+    Upper Left, Center, Lower Center, Upper Center).
 
-  • The menu bar now correctly shows "Chad's DaVinci Script" at the
-    top-left instead of "Python" when running in dev mode.
+  • Quad preview in Settings — a simulated video screen shows which
+    quadrant each track will land in, with the track name displayed.
+    Updates live as you select tracks or change quadrants.
 
-  • Settings dialog (Cmd+,) — edit the pan/tilt and zoom values for
-    each of the 4 quadrants plus any extra tracks. Option to skip V1
-    quadrant templates for faster builds. Changes apply the next time
-    you build.
+  • Settings moved to app menu with Cmd+, shortcut (standard macOS).
+    ESC or Cmd+. closes Settings. Return/Enter saves.
+    Only one Settings window can be open at a time.
 
-  • Hardened resolution parsing throughout — malformed source
-    resolution strings (from corrupted presets or imported settings)
-    no longer crash the build. The parser falls back to 1920x1080
-    with a warning logged to the console.
+  • Track order matches Resolve — the picker now shows V7 at the top
+    and V2 at the bottom, matching DaVinci Resolve's visual stacking.
 
-  • Safer JSON enum handling — unknown role strings in saved settings
-    are skipped with a warning instead of raising KeyError.
+  • Extra tracks get quadrant transforms — extras now receive a
+    default Q1 transform, or use custom transforms from Settings.
 
-  • Thread-safe label and routing array access during background
-    metadata extraction.
+  • 4K/8K format set to Square Division (SQ) — automatically applied
+    via combined UI automation (single Project Settings dialog open
+    for both playback frame rate and SQ format).
 
-  • macOS 15 Sequoia compatibility — all deprecated
-    activateIgnoringOtherApps_ calls now use the modern
-    NSApp.activate() API with the deprecated call as fallback.
+  • Import retry — media imports retry up to 3 times with a 2-second
+    delay between attempts to handle Resolve API flakiness.
 
-  • Memory leak fixes — module-level retention lists for About and
-    Manual windows now clear stale entries when re-opened instead of
-    accumulating.
+  • Persistent settings — all GUI settings (track names, project
+    settings, title checkboxes, extras) are remembered between
+    launches. File paths are cleared on each launch.
+
+  • macOS 15/16 compatibility — deprecated APIs replaced with modern
+    equivalents. Crash hardening for PyObjC pointer authentication.
 
 
 GETTING STARTED
@@ -319,16 +321,34 @@ a clean configuration for a new client preset.
 
 
 SETTINGS (Cmd+,)
-Open from the app menu or via Cmd+, (ESC to close). This dialog
-lets you fine-tune the Pan, Tilt, and Zoom values applied to each of
-the 4 quad tracks (V3 HW2 300 nit, V4 L1SHW 300, V5 HW2 795 Stretch,
-V6 L1SHW 795 Stretch) plus any extra tracks you've added.
+Open from the app menu or via Cmd+, (ESC or Cmd+. to close, Return to
+save). Only one Settings window can be open at a time.
 
-Default quad transforms:
-  • Q1 Top-Left:     Pan −Width/4, Tilt +Height/4
-  • Q2 Top-Right:    Pan +Width/4, Tilt +Height/4
-  • Q3 Bottom-Left:  Pan −Width/4, Tilt −Height/4
-  • Q4 Bottom-Right: Pan +Width/4, Tilt −Height/4
+Quadrant Transforms:
+  Select a track from the left panel to edit its quadrant assignment
+  and transform values (Pan, Tilt, Zoom, Rotation, Anchor, Pitch, Yaw,
+  Flip). A live quad preview shows which quadrant the selected track
+  will land in.
+
+  Default quad transforms:
+    • Q1 Top-Left:     Pan −Width/4, Tilt +Height/4
+    • Q2 Top-Right:    Pan +Width/4, Tilt +Height/4
+    • Q3 Bottom-Left:  Pan −Width/4, Tilt −Height/4
+    • Q4 Bottom-Right: Pan +Width/4, Tilt −Height/4
+
+  Extra tracks default to Q1 if not configured.
+
+Build Options:
+  • Skip V1 quadrant templates — skips the Solid Color compound clips
+    on V1 for faster builds.
+
+Title Style:
+  Controls the appearance of text overlays (the "T" checkbox per track):
+  • Font — 20 standard macOS fonts (default: Helvetica Neue)
+  • Size — standard point sizes from 10pt to 72pt (default: 24pt)
+  • Color — White, Yellow, Cyan, Green, Red, Orange, Black
+  • Placement — Lower Right, Lower Left, Upper Right, Upper Left,
+    Center, Lower Center, Upper Center
 
 Changes are saved to
 ~/Library/Application Support/Chads DaVinci Script/quadrant_settings.json
@@ -733,11 +753,12 @@ KEYBOARD SHORTCUTS
   Cmd+Z / Cmd+Shift+Z         Undo / redo in any text field
   Cmd+H                       Hide the app
   Cmd+Q                       Quit
+  Cmd+,                       Settings…
+  Cmd+. or ESC                Close Settings (Cancel)
+  Return/Enter                Save Settings / OK (build)
   Shift+Cmd+E                 File > Export Settings…
   Shift+Cmd+I                 File > Import Settings…
-  Cmd+,                       Settings…
   Cmd+?                       Help > Chad's DaVinci Script Help
-  Return (when picker is up)  OK (build the project)
 
 
 TROUBLESHOOTING

@@ -13,30 +13,28 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 [![CI](https://github.com/chadlittlepage/chads-davinci-script/actions/workflows/ci.yml/badge.svg)](https://github.com/chadlittlepage/chads-davinci-script/actions)
 
-## What's New in v0.3.0
+## What's New in v0.3.4
 
-- **Fully themed dialogs** — Save Preset, Delete Preset confirmation,
-  pre-flight warnings, and in-app menu dialogs now match the dark theme
-  of the main picker. No more light-mode system popups.
-- **Correct menu bar name** — the top-left menu bar now says
-  "Chad's DaVinci Script" instead of "Python" when running in dev mode
-  (uses `NSProcessInfo.setProcessName_`).
-- **Reset Defaults actually resets extras** — clicking Reset Defaults now
-  removes custom "+ Add Video Track" rows along with wiping settings.
-- **Quadrant Settings dialog** (`Shift+Cmd+Q`) — fine-tune Pan, Tilt, and
-  Zoom values for each of the 4 quad tracks plus any extras.
-- **Hardened resolution parsing** — malformed source resolution strings
-  in corrupted presets no longer crash the build; the parser falls back
-  to 1920x1080 with a warning.
-- **Safer JSON enum handling** — unknown role strings in saved settings
-  are skipped with a warning instead of raising KeyError.
-- **Thread-safe connection state** — routing and label arrays are now
-  protected by a `threading.Lock()`.
-- **macOS 15 Sequoia compatibility** — all deprecated
-  `activateIgnoringOtherApps_` calls now use the modern `NSApp.activate()`
-  API with the deprecated call as fallback across all 8 call sites.
-- **Memory leak fixes** — `_RETAINED` module-level lists for About and
-  Manual windows now clear stale entries when re-opened.
+- **Video track text overlays** — check the "T" box next to any track to
+  burn the track name into the video via Fusion TextPlus. No Fusion page
+  switch (uses `AddFusionComp` directly from the Edit page). Works for
+  built-in tracks and extras.
+- **Title Style settings** (`Cmd+,`) — choose font (20 standard macOS
+  fonts), point size (10-72pt), color, and placement for text overlays.
+- **Quad preview** in Settings — a simulated video screen shows which
+  quadrant each track will land in, with the track name displayed live.
+- **Settings dialog** moved to app menu with `Cmd+,` shortcut. `ESC` or
+  `Cmd+.` closes, `Return` saves. Single-instance (no duplicate windows).
+- **Track order matches Resolve** — picker shows V7 at top, V2 at bottom.
+- **Extra tracks get quadrant transforms** — default Q1 or custom from
+  Settings.
+- **4K/8K Square Division (SQ)** — set via combined UI automation (single
+  Project Settings dialog for both playback frame rate and SQ format).
+- **Import/bin retry** — 3 attempts with delay for Resolve API flakiness.
+- **Persistent settings** — all GUI settings remembered between launches;
+  file paths cleared on each launch.
+- **macOS 15/16 compatibility** — deprecated APIs replaced with modern
+  equivalents. Crash hardening for PyObjC pointer authentication traps.
 
 ## Features
 
@@ -103,11 +101,15 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
   (V3 = Q1 TL, V4 = Q2 TR, V5 = Q3 BL, V6 = Q4 BR)
 - V1 (QUAD Template) auto-generated as 4 Solid Color compound clips
 - Extras imported into a Master/Extras bin and added as new video
-  tracks above the quad layout
+  tracks above the quad layout, with quadrant transforms applied
+- **Text overlays** — optional per-track text burn-in via Fusion
+  TextPlus. Configurable font, size, color, and placement in Settings.
+  No Fusion page switch required.
 - Sets timeline resolution (4K or 8K based on Source dropdown)
 - Sets timeline frame rate (23.976 / 24 / 25 / 29.97 / 30 / 48 / 50 /
   59.94 / 60)
-- Sets playback frame rate via API or AppleScript fallback
+- Sets playback frame rate and 4K/8K Square Division (SQ) format via
+  API or combined AppleScript fallback (single dialog open)
 - Sets video monitoring (4:4:4 SDI, Quad link, Full data levels,
   12-bit → 10-bit → 8-bit fallback chain)
 - Sets color management (DaVinci YRGB, configurable Timeline + Output

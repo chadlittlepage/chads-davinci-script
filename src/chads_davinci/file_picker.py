@@ -1237,7 +1237,7 @@ class FilePickerController(NSObject):
         if idx is None:
             return
         row = self.extras.pop(idx)
-        for key in ("name_field", "path_field", "browse_btn", "del_btn"):
+        for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
             v = row.get(key)
             if v is not None:
                 v.removeFromSuperview()
@@ -2336,9 +2336,18 @@ def pick_files():
     content.addSubview_(ok_btn)
 
     # Show window and run the app loop (non-modal so drag-drop works)
-    # Restore any saved extra video tracks from user settings
+    # Restore any saved extra video tracks from user settings (names only, no paths)
     if settings.get("extras"):
-        controller._set_extras(settings.get("extras") or [])
+        extras_no_paths = [
+            {"name": e.get("name", ""), "file_path": "", "title": e.get("title", False)}
+            for e in (settings.get("extras") or [])
+        ]
+        controller._set_extras(extras_no_paths)
+
+    # Clear all built-in track file paths (settings persist names, not files)
+    for role in SELECTABLE_TRACKS:
+        controller.path_fields[role].setStringValue_("")
+        controller.assignments[role] = None
 
     window.makeKeyAndOrderFront_(None)
     (NSApp.activate() if hasattr(NSApp, "activate") else NSApp.activateIgnoringOtherApps_(True))

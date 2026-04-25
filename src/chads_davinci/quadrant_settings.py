@@ -162,6 +162,57 @@ def get_current_dialog():
     """Return the active QuadrantSettingsController, or None."""
     return _CURRENT_DIALOG
 
+# Title style defaults
+TITLE_FONTS = [
+    "Helvetica Neue", "Arial", "Avenir", "Futura", "Gill Sans",
+    "Verdana", "Trebuchet MS", "Optima", "Lucida Grande", "Didot",
+    "Baskerville", "Palatino", "Georgia", "Times New Roman",
+    "Hoefler Text", "American Typewriter", "Copperplate", "Menlo",
+    "Monaco", "Courier New",
+]
+
+# Point size -> Fusion TextPlus Size (normalized to 1080p frame height).
+# Fusion Size 1.0 = full frame height. Approximate: fusion = pt / 810
+TITLE_POINT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72]
+
+def pt_to_fusion_size(pt: int) -> float:
+    """Convert point size to Fusion TextPlus Size value (1080p reference)."""
+    return pt / 810.0
+
+def fusion_size_to_pt(fusion: float) -> int:
+    """Convert Fusion Size to nearest point size."""
+    pt = round(fusion * 810)
+    # Snap to nearest available size
+    closest = min(TITLE_POINT_SIZES, key=lambda s: abs(s - pt))
+    return closest
+
+TITLE_STYLE_DEFAULTS = {
+    "font": "Helvetica Neue",
+    "size_pt": 24,
+    "color": "White",
+    "placement": "Lower Right",
+}
+
+TITLE_COLORS = {
+    "White": (1.0, 1.0, 1.0),
+    "Yellow": (1.0, 1.0, 0.0),
+    "Cyan": (0.0, 1.0, 1.0),
+    "Green": (0.0, 1.0, 0.0),
+    "Red": (1.0, 0.2, 0.2),
+    "Orange": (1.0, 0.6, 0.0),
+    "Black": (0.0, 0.0, 0.0),
+}
+
+TITLE_PLACEMENTS = {
+    "Lower Right": [0.85, 0.08],
+    "Lower Left": [0.15, 0.08],
+    "Upper Right": [0.85, 0.92],
+    "Upper Left": [0.15, 0.92],
+    "Center": [0.5, 0.5],
+    "Lower Center": [0.5, 0.08],
+    "Upper Center": [0.5, 0.92],
+}
+
 # Transform field definitions: (key, label, default_value)
 _FLOAT_FIELDS = [
     ("zoom_x", "Zoom X", 1.0),
@@ -286,6 +337,11 @@ class QuadrantSettingsController(NSObject):
             self.tl_w = 7680
             self.tl_h = 4320
             self.quad_preview = None  # QuadPreviewView
+            # Title style controls
+            self.title_font_popup = None
+            self.title_size_popup = None
+            self.title_color_popup = None
+            self.title_placement_popup = None
         return self
 
     # ---- Loading ---------------------------------------------------------
@@ -525,10 +581,26 @@ class QuadrantSettingsController(NSObject):
             else:
                 tracks_out[key] = cfg
 
+        # Capture title style
+        title_style = dict(TITLE_STYLE_DEFAULTS)
+        if self.title_font_popup:
+            title_style["font"] = str(self.title_font_popup.titleOfSelectedItem())
+        if self.title_size_popup:
+            pt_str = str(self.title_size_popup.titleOfSelectedItem()).replace(" pt", "")
+            try:
+                title_style["size_pt"] = int(pt_str)
+            except (ValueError, TypeError):
+                pass
+        if self.title_color_popup:
+            title_style["color"] = str(self.title_color_popup.titleOfSelectedItem())
+        if self.title_placement_popup:
+            title_style["placement"] = str(self.title_placement_popup.titleOfSelectedItem())
+
         save_quadrant_settings({
             "version": 1,
             "tracks": tracks_out,
             "extras": extras_out,
+            "title_style": title_style,
         })
 
         # Persist the extras list to user_settings.json so the file picker
@@ -577,7 +649,7 @@ def show_quadrant_settings() -> None:
     controller = QuadrantSettingsController.alloc().init()
     controller._load_working()
 
-    win_w, win_h = 820, 640
+    win_w, win_h = 820, 800
     style = (
         NSWindowStyleMaskTitled
         | NSWindowStyleMaskClosable
@@ -590,7 +662,7 @@ def show_quadrant_settings() -> None:
         NSBackingStoreBuffered,
         False,
     )
-    window.setTitle_("Quadrant Settings")
+    window.setTitle_("Settings")
     window.center()
     window.setBackgroundColor_(BG_DARK)
     dark_appearance = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
@@ -604,7 +676,7 @@ def show_quadrant_settings() -> None:
 
     # --- Title ---
     title = _make_label(
-        "Quadrant Settings",
+        "Settings",
         NSMakeRect(margin, win_h - margin - 24, win_w - 2 * margin, 24),
         bold=True, size=16,
     )
@@ -748,6 +820,75 @@ def show_quadrant_settings() -> None:
     content.addSubview_(preview)
     controller.quad_preview = preview
     y -= preview_h
+
+    # --- Title Style ---
+    y -= 30
+    title_style_label = _make_label(
+        "Title Style", NSMakeRect(detail_x, y, detail_w, 20), bold=True, size=14
+    )
+    content.addSubview_(title_style_label)
+    y -= 30
+
+    # Load saved title style
+    from chads_davinci.settings_io import load_quadrant_settings as _load_qs
+    saved_ts = (_load_qs() or {}).get("title_style") or {}
+
+    # Row 1: Font + Size
+    fl = _make_label("Font:", NSMakeRect(detail_x, y + 2, 50, 18), size=12)
+    content.addSubview_(fl)
+    font_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(detail_x + 55, y, 180, 24), False
+    )
+    for fname in TITLE_FONTS:
+        font_popup.addItemWithTitle_(fname)
+    saved_font = saved_ts.get("font", TITLE_STYLE_DEFAULTS["font"])
+    if saved_font in TITLE_FONTS:
+        font_popup.selectItemWithTitle_(saved_font)
+    content.addSubview_(font_popup)
+    controller.title_font_popup = font_popup
+
+    sl = _make_label("Size:", NSMakeRect(detail_x + 250, y + 2, 40, 18), size=12)
+    content.addSubview_(sl)
+    size_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(detail_x + 295, y, 80, 24), False
+    )
+    for pt in TITLE_POINT_SIZES:
+        size_popup.addItemWithTitle_(f"{pt} pt")
+    saved_pt = saved_ts.get("size_pt", TITLE_STYLE_DEFAULTS["size_pt"])
+    # Handle legacy "size" key (Fusion float)
+    if "size" in saved_ts and "size_pt" not in saved_ts:
+        saved_pt = fusion_size_to_pt(float(saved_ts["size"]))
+    size_popup.selectItemWithTitle_(f"{saved_pt} pt")
+    content.addSubview_(size_popup)
+    controller.title_size_popup = size_popup
+
+    # Row 2: Color + Placement
+    y -= 32
+    cl = _make_label("Color:", NSMakeRect(detail_x, y + 2, 50, 18), size=12)
+    content.addSubview_(cl)
+    color_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(detail_x + 55, y, 120, 24), False
+    )
+    for cname in TITLE_COLORS:
+        color_popup.addItemWithTitle_(cname)
+    saved_color = saved_ts.get("color", TITLE_STYLE_DEFAULTS["color"])
+    if saved_color in TITLE_COLORS:
+        color_popup.selectItemWithTitle_(saved_color)
+    content.addSubview_(color_popup)
+    controller.title_color_popup = color_popup
+
+    pl = _make_label("Placement:", NSMakeRect(detail_x + 195, y + 2, 80, 18), size=12)
+    content.addSubview_(pl)
+    place_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(detail_x + 280, y, 140, 24), False
+    )
+    for pname in TITLE_PLACEMENTS:
+        place_popup.addItemWithTitle_(pname)
+    saved_place = saved_ts.get("placement", TITLE_STYLE_DEFAULTS["placement"])
+    if saved_place in TITLE_PLACEMENTS:
+        place_popup.selectItemWithTitle_(saved_place)
+    content.addSubview_(place_popup)
+    controller.title_placement_popup = place_popup
 
     # --- Bottom buttons ---
     reset_btn = NSButton.alloc().initWithFrame_(

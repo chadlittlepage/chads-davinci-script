@@ -154,8 +154,10 @@ def run_build(data: dict) -> None:
     title_tracks = data.get("title_tracks") or {}
     if title_tracks and ctx.timeline:
         from chads_davinci.resolve_connection import add_text_overlays
+        # Load title style from quadrant settings
+        title_style = (custom_quad or {}).get("title_style")
         console.print()
-        add_text_overlays(ctx.resolve, ctx.timeline, title_tracks)
+        add_text_overlays(ctx.resolve, ctx.timeline, title_tracks, title_style=title_style)
 
     console.print()
     console.print("[green bold]Done![/green bold]")
