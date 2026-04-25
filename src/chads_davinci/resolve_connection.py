@@ -825,16 +825,30 @@ def _create_transform_templates(
         console.print(f"  {name}: {compound.GetDuration()} frames, Orange, transform applied")
 
 
-def add_extra_tracks(ctx: ResolveContext, extras: list[dict]) -> None:
+def add_extra_tracks(
+    ctx: ResolveContext,
+    extras: list[dict],
+    extra_transforms: list[dict] | None = None,
+) -> None:
     """Import extra video files into a Master/Extras bin and add them as
-    additional video tracks above the existing tracks. No transform applied.
+    additional video tracks above the existing tracks. Applies quadrant
+    transforms from the Settings dialog if configured.
 
     `extras` is a list of {"name": str, "file_path": str} dicts.
+    `extra_transforms` is the "extras" list from quadrant_settings.json.
     """
     timeline = ctx.timeline
     media_pool = ctx.media_pool
     if timeline is None or media_pool is None or not extras:
         return
+
+    # Build transform lookup from quadrant settings: extra name -> config dict
+    tf_lookup: dict[str, dict] = {}
+    if extra_transforms:
+        for et in extra_transforms:
+            ename = et.get("name", "")
+            if ename:
+                tf_lookup[ename] = et
 
     # Ensure Extras bin exists under Master root
     root_folder = media_pool.GetRootFolder()
@@ -900,6 +914,37 @@ def add_extra_tracks(ctx: ResolveContext, extras: list[dict]) -> None:
                 f"  Added extra: [cyan]{name}[/cyan] -> V{new_track_num} "
                 f"[dim]({Path(file_path).name})[/dim]"
             )
+            # Apply quadrant transform — from Settings if configured,
+            # otherwise default to Q1
+            cfg = tf_lookup.get(name)
+            if not cfg:
+                from chads_davinci.models import Quadrant, quadrant_offsets
+                # Default: source_res * 2 = timeline_res
+                try:
+                    tl_w = int(ctx.project.GetSetting("timelineResolutionWidth") or 3840)
+                    tl_h = int(ctx.project.GetSetting("timelineResolutionHeight") or 2160)
+                except Exception:
+                    tl_w, tl_h = 3840, 2160
+                px, py = quadrant_offsets(Quadrant.Q1, tl_w, tl_h)
+                cfg = {"zoom_x": 1.0, "zoom_y": 1.0, "position_x": px, "position_y": py}
+            if cfg:
+                clips = timeline.GetItemListInTrack("video", new_track_num)
+                if clips:
+                    clip = clips[0]
+                    clip.SetProperty("ZoomX", cfg.get("zoom_x", 1.0))
+                    clip.SetProperty("ZoomY", cfg.get("zoom_y", 1.0))
+                    clip.SetProperty("Pan", cfg.get("position_x", 0.0))
+                    clip.SetProperty("Tilt", cfg.get("position_y", 0.0))
+                    clip.SetProperty("RotationAngle", cfg.get("rotation_angle", 0.0))
+                    clip.SetProperty("AnchorPointX", cfg.get("anchor_point_x", 0.0))
+                    clip.SetProperty("AnchorPointY", cfg.get("anchor_point_y", 0.0))
+                    clip.SetProperty("Pitch", cfg.get("pitch", 0.0))
+                    clip.SetProperty("Yaw", cfg.get("yaw", 0.0))
+                    clip.SetProperty("FlipX", bool(cfg.get("flip_h", False)))
+                    clip.SetProperty("FlipY", bool(cfg.get("flip_v", False)))
+                    console.print(
+                        f"  Transform: pos=({cfg.get('position_x', 0)}, {cfg.get('position_y', 0)})"
+                    )
         else:
             console.print(f"  [red]Failed to place clip on V{new_track_num}[/red]")
 
@@ -935,3 +980,87 @@ def _apply_transform(ctx: ResolveContext, track_number: int, role: TrackRole) ->
         f"  Transform applied: zoom={transform.zoom_x}, "
         f"pos=({transform.position_x}, {transform.position_y})"
     )
+
+
+def add_text_overlays(
+    resolve: Any,
+    timeline: Any,
+    title_tracks: dict[str, str],
+) -> None:
+    """Add text overlays to video clips via AddFusionComp.
+
+    Uses clip.AddFusionComp() to create a Fusion composition directly
+    on each clip from the Edit page — no Fusion page switch needed.
+
+    Args:
+        resolve: The Resolve scripting API object (unused but kept for API compat).
+        timeline: The current timeline.
+        title_tracks: Dict mapping role name (e.g. "REEL_SOURCE") or
+                      extra key (e.g. "extra:My Track") to the text
+                      to overlay.
+    """
+    if not title_tracks:
+        return
+
+    total_tracks = timeline.GetTrackCount("video")
+    role_to_track: dict[str, int] = {}
+    for t in range(1, total_tracks + 1):
+        name = timeline.GetTrackName("video", t)
+        for role in TrackRole:
+            if role.value == name:
+                role_to_track[role.name] = t
+                break
+        role_to_track[f"extra:{name}"] = t
+
+    console.print(f"[bold]Adding text overlays to {len(title_tracks)} track(s)...[/bold]")
+
+    for role_key, title_text in title_tracks.items():
+        track_num = role_to_track.get(role_key)
+        if track_num is None:
+            console.print(f"  [yellow]No track found for '{role_key}', skipping[/yellow]")
+            continue
+
+        clips = timeline.GetItemListInTrack("video", track_num)
+        if not clips:
+            console.print(f"  [yellow]V{track_num}: no clip, skipping[/yellow]")
+            continue
+
+        clip = clips[0]
+        track_name = timeline.GetTrackName("video", track_num)
+        console.print(f"  V{track_num} ({track_name}): '{title_text}'")
+
+        # Create a Fusion comp directly on the clip (no page switch)
+        comp = clip.AddFusionComp()
+        if comp is None:
+            console.print("    [yellow]AddFusionComp failed[/yellow]")
+            continue
+
+        media_in = comp.FindTool("MediaIn1")
+        media_out = comp.FindTool("MediaOut1")
+        if not media_in or not media_out:
+            console.print("    [yellow]Missing MediaIn/MediaOut[/yellow]")
+            continue
+
+        text_tool = comp.AddTool("TextPlus", -32768, -32768)
+        if not text_tool:
+            console.print("    [yellow]Could not add TextPlus[/yellow]")
+            continue
+
+        text_tool.SetInput("StyledText", title_text)
+        text_tool.SetInput("Center", [0.85, 0.08])
+        text_tool.SetInput("Font", "Open Sans")
+        text_tool.SetInput("Style", "Regular")
+        text_tool.SetInput("Size", 0.032)
+        text_tool.SetInput("Red1", 1.0)
+        text_tool.SetInput("Green1", 1.0)
+        text_tool.SetInput("Blue1", 1.0)
+        text_tool.SetInput("Alpha1", 1.0)
+
+        merge = comp.AddTool("Merge", -32768, -32768)
+        if merge:
+            merge.ConnectInput("Background", media_in)
+            merge.ConnectInput("Foreground", text_tool)
+            media_out.ConnectInput("Input", merge)
+            console.print("    Done")
+        else:
+            console.print("    [yellow]Merge failed[/yellow]")

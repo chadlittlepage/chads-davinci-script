@@ -67,9 +67,10 @@ WHAT'S NEW IN v0.3.0
   • The menu bar now correctly shows "Chad's DaVinci Script" at the
     top-left instead of "Python" when running in dev mode.
 
-  • Quadrant Settings dialog (Shift+Cmd+Q) — edit the pan/tilt and
-    zoom values for each of the 4 quadrants plus any extra tracks.
-    Changes apply the next time you build.
+  • Settings dialog (Cmd+,) — edit the pan/tilt and zoom values for
+    each of the 4 quadrants plus any extra tracks. Option to skip V1
+    quadrant templates for faster builds. Changes apply the next time
+    you build.
 
   • Hardened resolution parsing throughout — malformed source
     resolution strings (from corrupted presets or imported settings)
@@ -317,8 +318,8 @@ Use this if your saved state ever gets into a strange shape, or to start
 a clean configuration for a new client preset.
 
 
-QUADRANT SETTINGS (Shift+Cmd+Q)
-Open from File > Quadrant Settings… or via Shift+Cmd+Q. This dialog
+SETTINGS (Cmd+,)
+Open from the app menu or via Cmd+, (ESC to close). This dialog
 lets you fine-tune the Pan, Tilt, and Zoom values applied to each of
 the 4 quad tracks (V3 HW2 300 nit, V4 L1SHW 300, V5 HW2 795 Stretch,
 V6 L1SHW 795 Stretch) plus any extra tracks you've added.
@@ -734,7 +735,7 @@ KEYBOARD SHORTCUTS
   Cmd+Q                       Quit
   Shift+Cmd+E                 File > Export Settings…
   Shift+Cmd+I                 File > Import Settings…
-  Shift+Cmd+Q                 File > Quadrant Settings…
+  Cmd+,                       Settings…
   Cmd+?                       Help > Chad's DaVinci Script Help
   Return (when picker is up)  OK (build the project)
 

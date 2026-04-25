@@ -95,10 +95,11 @@ class MenuTarget(NSObject):
                     _show_dialog("Export Failed", str(e))
 
     def showQuadrantSettings_(self, sender):
+        from PyObjCTools import AppHelper
+        AppHelper.callAfter(self._showQuadrantSettingsDeferred)
+
+    def _showQuadrantSettingsDeferred(self):
         try:
-            # Snapshot the picker's current form state so the quadrant
-            # dialog sees the user's current (possibly unsaved) Source
-            # Resolution and extras, not stale disk values.
             try:
                 from chads_davinci.file_picker import get_current_controller
                 ctrl = get_current_controller()
@@ -111,8 +112,8 @@ class MenuTarget(NSObject):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            print(f"[quadrant_settings] ERROR: {e}\n{tb}", flush=True)
-            _show_dialog("Quadrant Settings Error", f"{e}\n\n{tb}")
+            print(f"[settings] ERROR: {e}\n{tb}", flush=True)
+            _show_dialog("Settings Error", f"{e}\n\n{tb}")
 
     def importSettings_(self, sender):
         """Show open panel and import settings from JSON."""
@@ -208,6 +209,15 @@ def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
 
     app_menu.addItem_(NSMenuItem.separatorItem())
 
+    # Settings (Cmd+,) — standard macOS location for preferences
+    settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+        "Settings\u2026", "showQuadrantSettings:", ","
+    )
+    settings_item.setTarget_(target)
+    app_menu.addItem_(settings_item)
+
+    app_menu.addItem_(NSMenuItem.separatorItem())
+
     # Hide
     hide_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
         f"Hide {app_name}", "hide:", "h"
@@ -255,15 +265,6 @@ def setup_menu_bar(app_name: str = "Chad's DaVinci Script") -> None:
     import_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
     import_item.setTarget_(target)
     file_menu.addItem_(import_item)
-
-    file_menu.addItem_(NSMenuItem.separatorItem())
-
-    quad_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-        "Quadrant Settings\u2026", "showQuadrantSettings:", "Q"
-    )
-    quad_item.setKeyEquivalentModifierMask_((1 << 17) | (1 << 20))  # shift+cmd
-    quad_item.setTarget_(target)
-    file_menu.addItem_(quad_item)
 
     # ---- Edit menu (provides cut/copy/paste for text fields) ----
     edit_menu_item = NSMenuItem.alloc().init()

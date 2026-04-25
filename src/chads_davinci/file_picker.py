@@ -162,6 +162,9 @@ class PickerResult:
     bin_rename_map: dict[str, str] | None = None
     # Extra user-added video tracks: list of {"name": str, "file_path": str|None}
     extras: list[dict] = field(default_factory=list)
+    # Tracks that should get a text overlay with the track name.
+    # Dict of role_name (str) -> title_text (str). Extras use "extra:Name".
+    title_tracks: dict[str, str] = field(default_factory=dict)
 
 
 def _get_resolve_databases() -> list[dict[str, str]]:
@@ -506,6 +509,7 @@ class FilePickerController(NSObject):
             # Map button object_id -> role for browse/clear lookups
             # Map NSControl tag (int) -> TrackRole. Tags are stable across PyObjC calls.
             self.button_roles = {}
+            self.title_checks = {}  # TrackRole -> NSButton checkbox for text overlay
             self.db_list = []
             self.db_type_popup = None
             self.db_name_popup = None
@@ -1071,6 +1075,7 @@ class FilePickerController(NSObject):
             bin_structure=bin_structure,
             bin_rename_map=bin_rename_map,
             extras=self._capture_extras(),
+            title_tracks=self._capture_title_tracks(),
         )
 
         self._save_user_settings_from_form()
@@ -1098,7 +1103,7 @@ class FilePickerController(NSObject):
             f = v.frame()
             v.setFrameOrigin_((f.origin.x, f.origin.y + delta))
         for row in self.extras:
-            for key in ("name_field", "path_field", "browse_btn", "del_btn"):
+            for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
                 v = row.get(key)
                 if v is None:
                     continue
@@ -1119,16 +1124,17 @@ class FilePickerController(NSObject):
             # extras[-1] (bottom) sits EXTRAS_GAP above REEL SOURCE.
             # extras[0]  (top)    sits row_h*(n-1) above extras[-1].
             target_y = self.col_headers_y_initial + EXTRAS_GAP + (n - 1 - j) * row_h
-            for key in ("name_field", "path_field", "browse_btn", "del_btn"):
+            for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
                 v = row.get(key)
                 if v is None:
                     continue
                 f = v.frame()
                 v.setFrameOrigin_((f.origin.x, target_y))
 
-    def _build_extra_row(self, y, name_text="", path_text=""):
+    def _build_extra_row(self, y, name_text="", path_text="", title_on=False):
         """Construct widgets for a single extra row at content y. Returns dict."""
         margin = 20
+        chk_w = 22
         label_w = 180
         field_w = 580
         btn_w = 90
@@ -1136,8 +1142,16 @@ class FilePickerController(NSObject):
         tag_del = self.next_extra_tag + 1
         self.next_extra_tag += 2
 
+        title_chk = NSButton.alloc().initWithFrame_(
+            NSMakeRect(margin, y + 2, chk_w, 20)
+        )
+        title_chk.setButtonType_(3)
+        title_chk.setTitle_("")
+        title_chk.setToolTip_("Add track name as text overlay on the video")
+        title_chk.setState_(1 if title_on else 0)
+
         name_field = _make_textfield(name_text or f"Extra {len(self.extras) + 1}",
-                                     NSMakeRect(margin, y, label_w, 24))
+                                     NSMakeRect(margin + chk_w, y, label_w - chk_w, 24))
         name_field.setTarget_(self)
         name_field.setAction_("extraNameFieldChanged:")
 
@@ -1175,12 +1189,14 @@ class FilePickerController(NSObject):
         del_btn.setAction_("deleteExtraTrackClicked:")
 
         content = self.window.contentView()
+        content.addSubview_(title_chk)
         content.addSubview_(name_field)
         content.addSubview_(path_field)
         content.addSubview_(browse_btn)
         content.addSubview_(del_btn)
 
         return {
+            "title_chk": title_chk,
             "name_field": name_field,
             "path_field": path_field,
             "browse_btn": browse_btn,
@@ -1292,13 +1308,31 @@ class FilePickerController(NSObject):
             )
 
     def _capture_extras(self):
-        """Snapshot extras into a list of {name, file_path} dicts."""
+        """Snapshot extras into a list of {name, file_path, title} dicts."""
         out = []
         for row in self.extras:
             name = str(row["name_field"].stringValue()).strip()
             path = str(row["path_field"].stringValue()).strip()
-            out.append({"name": name, "file_path": path or None})
+            title_on = bool(row.get("title_chk") and row["title_chk"].state())
+            out.append({"name": name, "file_path": path or None, "title": title_on})
         return out
+
+    def _capture_title_tracks(self):
+        """Build a dict of role_name -> title_text for tracks with title enabled."""
+        titles = {}
+        for role, chk in self.title_checks.items():
+            if chk.state():
+                name = str(self.name_fields[role].stringValue()).strip()
+                if name:
+                    titles[role.name] = name
+        # Extras
+        for row in self.extras:
+            title_on = bool(row.get("title_chk") and row["title_chk"].state())
+            if title_on:
+                name = str(row["name_field"].stringValue()).strip()
+                if name:
+                    titles[f"extra:{name}"] = name
+        return titles
 
     def _notify_quadrant_dialog(self):
         """If the Quadrant Settings dialog is open, push current extras to it
@@ -1452,6 +1486,10 @@ class FilePickerController(NSObject):
             "report_format": str(self.report_format_popup.titleOfSelectedItem()) if self.report_format_popup else "None",
             "marker_option": str(self.marker_popup.titleOfSelectedItem()) if self.marker_popup else "None",
             "extras": self._capture_extras(),
+            "title_checks": {
+                role.name: bool(chk.state())
+                for role, chk in self.title_checks.items()
+            },
         }
 
     def _save_user_settings_from_form(self):
@@ -1892,8 +1930,15 @@ def pick_files():
     y -= 30
 
     # Column headers
+    chk_w = 22  # width reserved for the title checkbox column
+    col_h0 = _make_label(
+        "T", NSMakeRect(margin, y, chk_w, 18), bold=True, size=11
+    )
+    col_h0.setToolTip_("Title: check to overlay the track name on the video")
+    content.addSubview_(col_h0)
+    controller.upper_views.append(col_h0)
     col_h1 = _make_label(
-        "Track Name", NSMakeRect(margin, y, label_w, 18), bold=True, size=11
+        "Track Name", NSMakeRect(margin + chk_w, y, label_w - chk_w, 18), bold=True, size=11
     )
     content.addSubview_(col_h1)
     controller.upper_views.append(col_h1)
@@ -1910,12 +1955,24 @@ def pick_files():
 
     # File rows — assign unique tags so action handlers can identify which row
     next_tag = 1000
+    saved_title_checks = settings.get("title_checks") or {}
     for role in SELECTABLE_TRACKS:
         optional = role in OPTIONAL_TRACKS
 
+        # Title checkbox — when checked, the build adds a text overlay
+        title_chk = NSButton.alloc().initWithFrame_(
+            NSMakeRect(margin, y + 2, chk_w, 20)
+        )
+        title_chk.setButtonType_(3)  # NSSwitchButton
+        title_chk.setTitle_("")
+        title_chk.setToolTip_("Add track name as text overlay on the video")
+        title_chk.setState_(1 if saved_title_checks.get(role.name, False) else 0)
+        content.addSubview_(title_chk)
+        controller.title_checks[role] = title_chk
+
         # Name field — use saved name if user customized it
         default_name = saved_track_names.get(role.name, role.value)
-        name_field = _make_textfield(default_name, NSMakeRect(margin, y, label_w, 24))
+        name_field = _make_textfield(default_name, NSMakeRect(margin + chk_w, y, label_w - chk_w, 24))
         content.addSubview_(name_field)
         controller.name_fields[role] = name_field
 

@@ -476,6 +476,7 @@ def main() -> int:
         "source_resolution": picker_result.source_resolution,
         "timeline_markers": timeline_markers,
         "extras": picker_result.extras or [],
+        "title_tracks": picker_result.title_tracks or {},
     }
 
     if progress:

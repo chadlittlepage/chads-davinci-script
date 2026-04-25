@@ -127,7 +127,9 @@ def run_build(data: dict) -> None:
         from chads_davinci.resolve_connection import add_extra_tracks
         console.print()
         console.print(f"[bold]Adding {len(extras)} extra video track(s)...[/bold]")
-        add_extra_tracks(ctx, extras)
+        # Pass extra transforms from quadrant settings
+        extra_tf = custom_quad.get("extras") if custom_quad else None
+        add_extra_tracks(ctx, extras, extra_transforms=extra_tf)
 
     # Add metadata markers to the timeline if requested
     timeline_markers = data.get("timeline_markers") or []
@@ -147,6 +149,13 @@ def run_build(data: dict) -> None:
                 console.print(f"  Added marker: [cyan]{m['name']}[/cyan] at frame {frame_id}")
             except Exception as e:
                 console.print(f"  [yellow]Failed to add marker {m['name']}: {e}[/yellow]")
+
+    # Add text overlays to tracks that have the title checkbox enabled
+    title_tracks = data.get("title_tracks") or {}
+    if title_tracks and ctx.timeline:
+        from chads_davinci.resolve_connection import add_text_overlays
+        console.print()
+        add_text_overlays(ctx.resolve, ctx.timeline, title_tracks)
 
     console.print()
     console.print("[green bold]Done![/green bold]")

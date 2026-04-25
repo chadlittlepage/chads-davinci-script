@@ -15,16 +15,22 @@ from AppKit import (
     NSApp,
     NSAppearance,
     NSBackingStoreBuffered,
+    NSBezierPath,
     NSButton,
+    NSColor,
     NSFont,
+    NSFontAttributeName,
+    NSForegroundColorAttributeName,
     NSMakeRect,
     NSObject,
     NSPopUpButton,
     NSScrollView,
+    NSString,
     NSTableColumn,
     NSTableView,
     NSTextField,
     NSTextFieldRoundedBezel,
+    NSView,
     NSWindow,
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskMiniaturizable,
@@ -42,6 +48,109 @@ from chads_davinci.models import (
 from chads_davinci.theme import BG_DARK, FIELD_BG, TEXT_DIM, TEXT_WHITE
 
 _RETAINED = []
+
+
+class QuadPreviewView(NSView):
+    """Draws a 16:9 quad-view monitor showing which quadrant is active."""
+
+    def init(self):
+        self = objc.super(QuadPreviewView, self).init()
+        if self is not None:
+            self._active_quad = None  # "Q1", "Q2", "Q3", "Q4" or None
+            self._track_name = ""
+        return self
+
+    def set_active(self, quad_str, track_name=""):
+        self._active_quad = quad_str
+        self._track_name = track_name or ""
+        self.setNeedsDisplay_(True)
+
+    def drawRect_(self, rect):
+        frame = self.bounds()
+        fw, fh = float(frame.size.width), float(frame.size.height)
+
+        # Draw within a 16:9 aspect ratio centered in the view
+        aspect = 16.0 / 9.0
+        if fw / fh > aspect:
+            draw_h = fh - 4
+            draw_w = draw_h * aspect
+        else:
+            draw_w = fw - 4
+            draw_h = draw_w / aspect
+        ox = (fw - draw_w) / 2.0
+        oy = (fh - draw_h) / 2.0
+
+        # Background (dark screen)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.08, 0.08, 0.08, 1.0).set()
+        NSBezierPath.bezierPathWithRect_(NSMakeRect(ox, oy, draw_w, draw_h)).fill()
+
+        half_w = draw_w / 2.0
+        half_h = draw_h / 2.0
+
+        # Quadrant rects (Cocoa Y is bottom-up)
+        quads = {
+            "Q1": NSMakeRect(ox, oy + half_h, half_w, half_h),           # top-left
+            "Q2": NSMakeRect(ox + half_w, oy + half_h, half_w, half_h),  # top-right
+            "Q3": NSMakeRect(ox, oy, half_w, half_h),                     # bottom-left
+            "Q4": NSMakeRect(ox + half_w, oy, half_w, half_h),           # bottom-right
+        }
+
+        # Draw active quadrant highlight
+        if self._active_quad in quads:
+            NSColor.colorWithCalibratedRed_green_blue_alpha_(0.0, 0.4, 0.85, 0.35).set()
+            NSBezierPath.bezierPathWithRect_(quads[self._active_quad]).fill()
+
+        # Draw grid lines
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.4, 0.4, 0.38, 1.0).set()
+        vline = NSBezierPath.bezierPath()
+        vline.moveToPoint_((ox + half_w, oy))
+        vline.lineToPoint_((ox + half_w, oy + draw_h))
+        vline.setLineWidth_(1.0)
+        vline.stroke()
+        hline = NSBezierPath.bezierPath()
+        hline.moveToPoint_((ox, oy + half_h))
+        hline.lineToPoint_((ox + draw_w, oy + half_h))
+        hline.setLineWidth_(1.0)
+        hline.stroke()
+
+        # Border
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.5, 0.5, 0.48, 1.0).set()
+        border = NSBezierPath.bezierPathWithRect_(NSMakeRect(ox, oy, draw_w, draw_h))
+        border.setLineWidth_(1.5)
+        border.stroke()
+
+        # Quad labels + active track name
+        dim_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.5, 0.5, 0.48, 1.0)
+        bright_color = NSColor.whiteColor()
+        label_font = NSFont.systemFontOfSize_(10)
+        name_font = NSFont.boldSystemFontOfSize_(11)
+
+        for q_name, q_rect in quads.items():
+            is_active = (q_name == self._active_quad)
+            qx = float(q_rect.origin.x)
+            qy = float(q_rect.origin.y)
+            qw = float(q_rect.size.width)
+            qh = float(q_rect.size.height)
+
+            attrs = {
+                NSFontAttributeName: label_font,
+                NSForegroundColorAttributeName: bright_color if is_active else dim_color,
+            }
+            label_str = NSString.stringWithString_(q_name)
+            lx = qx + qw / 2.0 - 8
+            ly = qy + qh / 2.0
+            label_str.drawAtPoint_withAttributes_((lx, ly), attrs)
+
+            if is_active and self._track_name:
+                name_attrs = {
+                    NSFontAttributeName: name_font,
+                    NSForegroundColorAttributeName: bright_color,
+                }
+                name_str = NSString.stringWithString_(self._track_name)
+                name_size = name_str.sizeWithAttributes_(name_attrs)
+                nx = qx + (qw - float(name_size.width)) / 2.0
+                ny = ly - 18
+                name_str.drawAtPoint_withAttributes_((nx, ny), name_attrs)
 
 # Module-level reference to the currently-open dialog controller, so the
 # file picker can live-update the track list when + Add Video Track or the
@@ -176,6 +285,7 @@ class QuadrantSettingsController(NSObject):
             self._current_row = -1
             self.tl_w = 7680
             self.tl_h = 4320
+            self.quad_preview = None  # QuadPreviewView
         return self
 
     # ---- Loading ---------------------------------------------------------
@@ -347,6 +457,22 @@ class QuadrantSettingsController(NSObject):
         self._updating_fields = False
         if self.table_view is not None:
             self._current_row = self.table_view.selectedRow()
+        self._update_quad_preview()
+
+    def _update_quad_preview(self):
+        if self.quad_preview is None:
+            return
+        key = self._selected_key()
+        if key is None or key not in self.working:
+            self.quad_preview.set_active(None, "")
+            return
+        cfg = self.working[key]
+        q_str = cfg.get("quadrant", "Q1")
+        # Get display name
+        display_name = ""
+        if self._current_row >= 0 and self._current_row < len(self.entries):
+            display_name = self.entries[self._current_row][1]
+        self.quad_preview.set_active(q_str, display_name)
 
     # ---- Actions ---------------------------------------------------------
 
@@ -374,6 +500,7 @@ class QuadrantSettingsController(NSObject):
             self.field_refs["position_x"].setStringValue_(f"{px:.3f}")
         if self.field_refs.get("position_y"):
             self.field_refs["position_y"].setStringValue_(f"{py:.3f}")
+        self._update_quad_preview()
 
     def windowWillClose_(self, notification):
         """Clear the module-level reference when the dialog closes."""
@@ -436,7 +563,17 @@ class QuadrantSettingsController(NSObject):
 # ---------------------------------------------------------------------------
 
 def show_quadrant_settings() -> None:
-    """Open the Quadrant Settings dialog."""
+    """Open the Settings dialog. Only one instance at a time."""
+    global _CURRENT_DIALOG
+    # If already open, just bring it to front
+    if _CURRENT_DIALOG is not None and _CURRENT_DIALOG.window is not None:
+        _CURRENT_DIALOG.window.makeKeyAndOrderFront_(None)
+        if hasattr(NSApp, "activate"):
+            NSApp.activate()
+        else:
+            NSApp.activateIgnoringOtherApps_(True)
+        return
+
     controller = QuadrantSettingsController.alloc().init()
     controller._load_working()
 
@@ -602,6 +739,16 @@ def show_quadrant_settings() -> None:
     note.setTextColor_(TEXT_DIM)
     content.addSubview_(note)
 
+    # --- Quad Preview ---
+    y -= 10
+    preview_h = 140
+    preview = QuadPreviewView.alloc().initWithFrame_(
+        NSMakeRect(detail_x, y - preview_h, detail_w, preview_h)
+    )
+    content.addSubview_(preview)
+    controller.quad_preview = preview
+    y -= preview_h
+
     # --- Bottom buttons ---
     reset_btn = NSButton.alloc().initWithFrame_(
         NSMakeRect(margin, margin, 130, btn_h)
@@ -617,9 +764,18 @@ def show_quadrant_settings() -> None:
     )
     cancel_btn.setTitle_("Cancel")
     cancel_btn.setBezelStyle_(1)
+    cancel_btn.setKeyEquivalent_("\x1b")  # ESC key
     cancel_btn.setTarget_(controller)
     cancel_btn.setAction_("cancelClicked:")
     content.addSubview_(cancel_btn)
+
+    # Hidden Cmd+. cancel shortcut (standard macOS cancel)
+    cmd_dot_btn = NSButton.alloc().initWithFrame_(NSMakeRect(-100, -100, 1, 1))
+    cmd_dot_btn.setKeyEquivalent_(".")
+    cmd_dot_btn.setKeyEquivalentModifierMask_(1 << 20)  # Cmd
+    cmd_dot_btn.setTarget_(controller)
+    cmd_dot_btn.setAction_("cancelClicked:")
+    content.addSubview_(cmd_dot_btn)
 
     save_btn = NSButton.alloc().initWithFrame_(
         NSMakeRect(win_w - margin - 90, margin, 90, btn_h)
@@ -642,7 +798,6 @@ def show_quadrant_settings() -> None:
     window.setDelegate_(controller)
 
     # Publish as the current dialog so the picker can push updates
-    global _CURRENT_DIALOG
     _CURRENT_DIALOG = controller
 
     window.makeKeyAndOrderFront_(None)
