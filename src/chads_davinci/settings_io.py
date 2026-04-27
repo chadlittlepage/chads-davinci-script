@@ -71,6 +71,10 @@ DEFAULT_SETTINGS = {
     "use_ffprobe": True,
     "report_format": "None",
     "marker_option": "None",
+    "database_type": "Local",
+    "extras": [],
+    "title_checks": {},
+    "quad_overrides": {},
 }
 
 

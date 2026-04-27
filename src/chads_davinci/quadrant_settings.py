@@ -592,11 +592,20 @@ class QuadrantSettingsController(NSObject):
             from chads_davinci.file_picker import get_current_controller
             from chads_davinci.models import TrackRole
             ctrl = get_current_controller()
-            if ctrl is not None and not key.startswith("extra:"):
-                role_map = {r.name: r for r in TrackRole}
-                role = role_map.get(key)
-                if role and role in ctrl.quad_popups:
-                    ctrl.quad_popups[role].selectItemWithTitle_(q_str)
+            if ctrl is not None:
+                if key.startswith("extra:"):
+                    # Find the extra row by name and update its quad popup
+                    extra_name = key[len("extra:"):]
+                    for row in ctrl.extras:
+                        name = str(row["name_field"].stringValue()).strip()
+                        if name == extra_name and row.get("quad_popup"):
+                            row["quad_popup"].selectItemWithTitle_(q_str)
+                            break
+                else:
+                    role_map = {r.name: r for r in TrackRole}
+                    role = role_map.get(key)
+                    if role and role in ctrl.quad_popups:
+                        ctrl.quad_popups[role].selectItemWithTitle_(q_str)
         except Exception:
             pass
 

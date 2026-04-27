@@ -577,6 +577,32 @@ class FilePickerController(NSObject):
         self.assignments[role] = None
         self.path_fields[role].setStringValue_("")
 
+    def extraQuadChanged_(self, sender):
+        """Extra track quad dropdown changed — sync to Settings if open."""
+        # Find which extra row this popup belongs to
+        for row in self.extras:
+            if row.get("quad_popup") is sender:
+                name = str(row["name_field"].stringValue()).strip()
+                new_quad = str(sender.titleOfSelectedItem())
+                key = f"extra:{name}"
+                try:
+                    from chads_davinci.quadrant_settings import get_current_dialog
+                    dlg = get_current_dialog()
+                    if dlg is not None and key in dlg.working:
+                        from chads_davinci.models import Quadrant, quadrant_offsets
+                        dlg.working[key]["quadrant"] = new_quad
+                        try:
+                            quad = Quadrant(new_quad)
+                            px, py = quadrant_offsets(quad, dlg.tl_w, dlg.tl_h)
+                            dlg.working[key]["position_x"] = px
+                            dlg.working[key]["position_y"] = py
+                        except (ValueError, KeyError):
+                            pass
+                        dlg._populate_detail()
+                except Exception:
+                    pass
+                break
+
     def pickerQuadChanged_(self, sender):
         """Quad dropdown changed in the picker — sync to Settings if open."""
         role = self.button_roles.get(int(sender.tag()))
@@ -1180,6 +1206,8 @@ class FilePickerController(NSObject):
             quad_popup.addItemWithTitle_(q.value)
         quad_popup.selectItemWithTitle_(quad_val or "Q1")
         quad_popup.setToolTip_("Quadrant position for this track")
+        quad_popup.setTarget_(self)
+        quad_popup.setAction_("extraQuadChanged:")
 
         name_field = _make_textfield(name_text or f"Extra {len(self.extras) + 1}",
                                      NSMakeRect(margin + chk_w + quad_w + 4, y, label_w - chk_w - quad_w - 4, 24))
@@ -1524,6 +1552,7 @@ class FilePickerController(NSObject):
             "use_ffprobe": bool(self.ffprobe_check.state()) if self.ffprobe_check else True,
             "report_format": str(self.report_format_popup.titleOfSelectedItem()) if self.report_format_popup else "None",
             "marker_option": str(self.marker_popup.titleOfSelectedItem()) if self.marker_popup else "None",
+            "database_type": str(self.db_type_popup.titleOfSelectedItem()) if self.db_type_popup else "Local",
             "extras": self._capture_extras(),
             "title_checks": {
                 role.name: bool(chk.state())
@@ -2195,6 +2224,9 @@ def pick_files():
         NSMakeRect(margin + label_w + 10, y, field_w, 24), False
     )
     db_type_popup.addItemsWithTitles_(["Local", "Network", "Cloud"])
+    saved_db_type = settings.get("database_type", "Local")
+    if saved_db_type in ("Local", "Network", "Cloud"):
+        db_type_popup.selectItemWithTitle_(saved_db_type)
     db_type_popup.setTarget_(controller)
     db_type_popup.setAction_("dbTypeChanged:")
     content.addSubview_(db_type_popup)
