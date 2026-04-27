@@ -22,9 +22,11 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
   switch (uses `AddFusionComp` directly from the Edit page). Works for
   built-in tracks and extras.
 - **Title Style settings** (`Cmd+,`) — choose font (20 standard macOS
-  fonts), point size (10-72pt), color, and placement for text overlays.
-- **Quad preview** in Settings — a simulated video screen shows which
-  quadrant each track will land in, with the track name displayed live.
+  fonts), point size (10-72pt), color (7 options), placement (7 positions),
+  and opacity (100/75/50/25%) for text overlays.
+- **Quad preview** in Settings — live preview of font, color, and opacity.
+  Shows which quadrant each track will land in with the track name rendered
+  in the selected style.
 - **Settings dialog** moved to app menu with `Cmd+,` shortcut. `ESC` or
   `Cmd+.` closes, `Return` saves. Single-instance (no duplicate windows).
 - **Track order matches Resolve** — picker shows V7 at top, V2 at bottom.

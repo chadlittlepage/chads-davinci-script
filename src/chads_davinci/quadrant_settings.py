@@ -60,13 +60,15 @@ class QuadPreviewView(NSView):
             self._track_name = ""
             self._title_font_name = "Helvetica Neue"
             self._title_opacity = 1.0
+            self._title_color = (1.0, 1.0, 1.0)
         return self
 
-    def set_active(self, quad_str, track_name="", font_name="Helvetica Neue", opacity=1.0):
+    def set_active(self, quad_str, track_name="", font_name="Helvetica Neue", opacity=1.0, color=(1.0, 1.0, 1.0)):
         self._active_quad = quad_str
         self._track_name = track_name or ""
         self._title_font_name = font_name or "Helvetica Neue"
         self._title_opacity = opacity
+        self._title_color = color or (1.0, 1.0, 1.0)
         self.setNeedsDisplay_(True)
 
     def drawRect_(self, rect):
@@ -150,8 +152,9 @@ class QuadPreviewView(NSView):
             label_str.drawAtPoint_withAttributes_((lx, ly), attrs)
 
             if is_active and self._track_name:
+                r, g, b = self._title_color
                 name_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
-                    1.0, 1.0, 1.0, self._title_opacity
+                    r, g, b, self._title_opacity
                 )
                 name_attrs = {
                     NSFontAttributeName: title_font,
@@ -557,7 +560,11 @@ class QuadrantSettingsController(NSObject):
         if self.title_opacity_popup:
             op_str = str(self.title_opacity_popup.titleOfSelectedItem())
             opacity = TITLE_OPACITY_OPTIONS.get(op_str, 1.0)
-        self.quad_preview.set_active(q_str, display_name, font_name=font_name, opacity=opacity)
+        color_rgb = (1.0, 1.0, 1.0)
+        if self.title_color_popup:
+            c_str = str(self.title_color_popup.titleOfSelectedItem())
+            color_rgb = TITLE_COLORS.get(c_str, (1.0, 1.0, 1.0))
+        self.quad_preview.set_active(q_str, display_name, font_name=font_name, opacity=opacity, color=color_rgb)
 
     # ---- Actions ---------------------------------------------------------
 
@@ -933,6 +940,8 @@ def show_quadrant_settings() -> None:
     saved_color = saved_ts.get("color", TITLE_STYLE_DEFAULTS["color"])
     if saved_color in TITLE_COLORS:
         color_popup.selectItemWithTitle_(saved_color)
+    color_popup.setTarget_(controller)
+    color_popup.setAction_("titleStyleChanged:")
     content.addSubview_(color_popup)
     controller.title_color_popup = color_popup
 

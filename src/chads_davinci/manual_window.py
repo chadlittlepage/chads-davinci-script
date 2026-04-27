@@ -379,6 +379,11 @@ Title Style:
   • Color — White, Yellow, Cyan, Green, Red, Orange, Black
   • Placement — Lower Right, Lower Left, Upper Right, Upper Left,
     Center, Lower Center, Upper Center
+  • Opacity — 100%, 75%, 50%, 25%
+
+  The quad preview shows all title style changes live — font, color,
+  and opacity update instantly as you change them, so you can see
+  exactly how the text will look before building.
 
 Changes are saved to
 ~/Library/Application Support/Chads DaVinci Script/quadrant_settings.json
