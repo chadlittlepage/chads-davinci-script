@@ -1,5 +1,7 @@
 ![Chad's DaVinci Script](screenshot.png)
 
+![Settings](screenshot_settings.png)
+
 # Chad's DaVinci Script
 
 A native macOS app that automates DaVinci Resolve project setup for
