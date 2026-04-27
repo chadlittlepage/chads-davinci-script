@@ -440,24 +440,60 @@ def main() -> int:
     console.print()
     console.print("[dim]Launching fresh Resolve connection for build...[/dim]")
 
-    # Build marker data for subprocess if "Add to Timeline" was selected
+    # Build marker data for subprocess if "Add to Timeline" was selected.
+    # Creates up to 3 markers per track: merged (Cyan), MediaInfo (Blue), ffprobe (Green).
     timeline_markers = []
     if "Timeline" in picker_result.marker_option and metadata_results:
-        for assignment, meta in metadata_results:
-            comment_parts = [
-                f"Codec: {meta.codec}",
-                f"Res: {meta.resolution}",
-                f"Bit: {meta.bit_depth or 'N/A'}",
-                f"CS: {meta.color_space}",
-                f"Transfer: {meta.hdr10.transfer_characteristics or 'N/A'}",
-                f"MaxCLL: {meta.hdr10.max_cll or 'N/A'}",
-                f"DV: {'Yes' if meta.dolby_vision.rpu_present else 'No'}",
-            ]
+        for assignment, mr in metadata_results:
+            meta = mr.merged
+
+            def _full_comment(m, label=""):
+                parts = [
+                    f"Codec: {m.codec}",
+                    f"Res: {m.resolution}",
+                    f"FPS: {m.frame_rate}",
+                    f"Bit: {m.bit_depth or 'N/A'}",
+                    f"CS: {m.color_space}",
+                    f"Primaries: {m.hdr10.color_primaries or 'N/A'}",
+                    f"Transfer: {m.hdr10.transfer_characteristics or 'N/A'}",
+                    f"Matrix: {m.hdr10.matrix_coefficients or 'N/A'}",
+                    f"MaxCLL: {m.hdr10.max_cll or 'N/A'}",
+                    f"MaxFALL: {m.hdr10.max_fall or 'N/A'}",
+                    f"MasterDisp: {m.hdr10.master_display or 'N/A'}",
+                    f"DV: {'Yes' if m.dolby_vision.rpu_present else 'No'}",
+                ]
+                if m.dolby_vision.rpu_present:
+                    parts.extend([
+                        f"DV Profile: {m.dolby_vision.profile}",
+                        f"DV Level: {m.dolby_vision.level}",
+                        f"DV Compat: {m.dolby_vision.bl_signal_compatibility_id}",
+                        f"DV EL: {m.dolby_vision.el_type or 'N/A'}",
+                    ])
+                prefix = f"[{label}] " if label else ""
+                return prefix + " | ".join(parts)
+
+            # Merged marker
             timeline_markers.append({
                 "role": assignment.role.value,
                 "name": assignment.role.value,
-                "comment": " | ".join(comment_parts),
+                "comment": _full_comment(meta),
+                "color": "Cyan",
             })
+            # Per-tool markers
+            if mr.mediainfo:
+                timeline_markers.append({
+                    "role": assignment.role.value,
+                    "name": f"{assignment.role.value} [MI]",
+                    "comment": _full_comment(mr.mediainfo, "MediaInfo"),
+                    "color": "Blue",
+                })
+            if mr.ffprobe:
+                timeline_markers.append({
+                    "role": assignment.role.value,
+                    "name": f"{assignment.role.value} [FP]",
+                    "comment": _full_comment(mr.ffprobe, "ffprobe"),
+                    "color": "Green",
+                })
 
     build_args_dict = {
         "assignments": [
@@ -477,6 +513,7 @@ def main() -> int:
         "timeline_markers": timeline_markers,
         "extras": picker_result.extras or [],
         "title_tracks": picker_result.title_tracks or {},
+        "quad_overrides": picker_result.quad_overrides or {},
     }
 
     if progress:

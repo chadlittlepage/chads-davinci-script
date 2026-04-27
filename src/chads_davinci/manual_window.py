@@ -32,7 +32,7 @@ _RETAINED = []
 
 
 MANUAL_TEXT = """\
-Chad's DaVinci Script v0.3.0 — User Manual
+Chad's DaVinci Script v0.4.0 — User Manual
 ===========================================
 
 OVERVIEW
@@ -42,90 +42,120 @@ HDR metadata testing. In one click it will:
   • Create or replace a Resolve project in the database/folder you choose
   • Build a custom bin/sub-bin structure in the media pool
   • Import each assigned media file into the correct bin
-  • Build a 7-track quad-view timeline with pre-applied transforms
-  • Add user-defined extra video tracks above the quad
+  • Build an 8-track quad-view timeline with pre-applied transforms
+    (7 selectable tracks + V1 Quad Template)
+  • Assign each track to a quadrant (Q1-Q4) via dropdown in the picker
+  • Add user-defined extra video tracks with quad assignment
+  • Burn track names into video via Fusion TextPlus overlays
   • Configure timeline resolution, frame rate, color management, video
     monitoring, image scaling, and SDI output options
-  • Extract per-clip metadata using MediaInfo and ffprobe
+  • Set 4K/8K format to Square Division (SQ) and playback frame rate
+    via combined AppleScript UI automation (single dialog)
+  • Extract per-clip metadata using MediaInfo and ffprobe (in parallel)
   • Save metadata reports in Text / CSV / JSON / HTML
-  • Optionally drop Resolve markers on the timeline OR export an EDL file
+  • Drop color-coded Resolve markers on the timeline: Cyan (merged),
+    Blue (MediaInfo-only), Green (ffprobe-only) — with full HDR10 +
+    Dolby Vision fields
+  • Export EDL marker files
+  • JSON reports include raw MediaInfo + ffprobe output for every field
 
 You can also run a metadata-only mode that skips the Resolve build entirely.
+File paths are cleared on each launch; all other settings persist.
 
 
-WHAT'S NEW IN v0.3.4
+WHAT'S NEW IN v0.4.0
 
-  • Video track text overlays — check the "T" box next to any track
-    to burn the track name into the video via Fusion TextPlus. No
-    Fusion page switch required (uses AddFusionComp from Edit page).
-    Works for built-in tracks and extra tracks.
+  • Video track text overlays — check the "T" box next to any track to
+    burn the track name into the video via Fusion TextPlus. No Fusion page
+    switch required. Works for built-in and extra tracks.
 
-  • Title Style settings (Cmd+,) — choose font (20 standard macOS
-    fonts), point size (10-72pt), color (White/Yellow/Cyan/Green/Red/
-    Orange/Black), and placement (Lower Right, Lower Left, Upper Right,
-    Upper Left, Center, Lower Center, Upper Center).
+  • Quadrant dropdown per track — each track row in the picker has a
+    Q1/Q2/Q3/Q4 dropdown. Changes sync bidirectionally with the Settings
+    dialog and are saved with presets and export/import.
 
-  • Quad preview in Settings — a simulated video screen shows which
-    quadrant each track will land in, with the track name displayed.
-    Updates live as you select tracks or change quadrants.
+  • Title Style settings (Cmd+,) — font (20 standard macOS fonts),
+    point size (10-72pt), color (7 options), placement (7 positions),
+    and opacity (100/75/50/25%). The quad preview shows the selected
+    font and opacity live.
 
-  • Settings moved to app menu with Cmd+, shortcut (standard macOS).
-    ESC or Cmd+. closes Settings. Return/Enter saves.
-    Only one Settings window can be open at a time.
+  • Per-tool metadata markers — each track gets up to 3 timeline markers:
+    Cyan (merged best-of-both), Blue (MediaInfo only), Green (ffprobe only).
+    All markers include full metadata: Codec, Resolution, FPS, Bit Depth,
+    Color Space, Primaries, Transfer, Matrix, MaxCLL, MaxFALL, Master
+    Display, DV Present/Profile/Level/Compat/EL Type.
 
-  • Track order matches Resolve — the picker now shows V7 at the top
-    and V2 at the bottom, matching DaVinci Resolve's visual stacking.
+  • JSON reports include raw data — the complete output from MediaInfo
+    and ffprobe is included under each track for deep analysis.
 
-  • Extra tracks get quadrant transforms — extras now receive a
-    default Q1 transform, or use custom transforms from Settings.
+  • Track layout updated — 7 selectable tracks:
+    V8 L15HW 795 Stretched 1500 (Q1), V7 HW2 795 Stretched 1500 (Q2),
+    V6 HW5 795 Stretched 1500 (Q2), V5 L15HW 300 (Q3),
+    V4 HW2 300 (Q4), V3 HW5 300 (Q4), V2 REEL SOURCE (Q2, optional)
 
-  • 4K/8K format set to Square Division (SQ) — automatically applied
-    via combined UI automation (single Project Settings dialog open
-    for both playback frame rate and SQ format).
+  • Settings moved to app menu (Cmd+,). ESC or Cmd+. to close, Return
+    to save. Only one Settings window at a time.
 
-  • Import retry — media imports retry up to 3 times with a 2-second
-    delay between attempts to handle Resolve API flakiness.
+  • Quad preview in Settings — simulated video screen shows which quadrant
+    each track lands in, with track name in the selected title font and
+    opacity. Updates live when you change quadrant, font, or opacity.
 
-  • Persistent settings — all GUI settings (track names, project
-    settings, title checkboxes, extras) are remembered between
-    launches. File paths are cleared on each launch.
+  • Extra tracks get quadrant transforms — default Q1 or custom quad
+    from the picker/Settings dropdown.
+
+  • Import/bin retry — 3 attempts with delay for Resolve API flakiness.
+
+  • No file requirement — build proceeds with any combination of files.
+
+  • Persistent settings — all GUI settings remembered between launches.
+    File paths are cleared on each launch.
 
   • macOS 15/16 compatibility — deprecated APIs replaced with modern
     equivalents. Crash hardening for PyObjC pointer authentication.
 
 
 GETTING STARTED
-1. Launch DaVinci Resolve.
+1. Launch DaVinci Resolve (or let the app auto-launch it).
 2. Open Chad's DaVinci Script.
 3. (Optional) Pick a saved Preset from the top-right dropdown to recall a
    prior configuration.
-4. Assign your video files to the 6 track rows (drag from Finder, paste a
-   path, or click Browse).
-5. (Optional) Click "+ Add Video Track" to add additional tracks above
+4. Assign your video files to the 7 track rows (drag from Finder, paste a
+   path, or click Browse). Not all tracks need files.
+5. (Optional) Set the quadrant (Q1-Q4) for each track using the Quad dropdown.
+6. (Optional) Check the "T" box next to any track to burn the track name
+   into the video. Configure font/size/color/placement/opacity in Settings.
+7. (Optional) Click "+ Add Video Track" to add additional tracks above
    REEL SOURCE.
 6. Click "Connect to Resolve" to fetch the database list.
 7. Choose your database, folder, project name, color spaces, frame rate,
    metadata tools, report format, and marker option.
-8. Click OK to build the full project, or Metadata Export to extract
+9. Click OK to build the full project, or Metadata Export to extract
    metadata only.
 
-All form values you set are saved automatically and restored the next time
-you launch the app.
+All form values (track names, quadrant assignments, title checkboxes,
+project settings, extras) are saved automatically and restored on next
+launch. File paths are cleared on each launch.
 
 
-FILE ASSIGNMENT — FIXED ROWS
-The picker has 6 fixed track rows for the quad-view layout:
+FILE ASSIGNMENT — TRACK ROWS
+The picker has 7 track rows for the quad-view layout (top to bottom):
 
-  REEL SOURCE             (optional) — original reference video (V2 off)
-  HW2 300 nit             (required) — Quadrant 1, top-left
-  L1SHW 300               (required) — Quadrant 2, top-right
-  HW2 795 Stretch 1500    (required) — Quadrant 3, bottom-left
-  L1SHW 795 Stretch 1500  (required) — Quadrant 4, bottom-right
-  L1SHW HDMI              (optional) — HDMI feed (V7 off)
+  V8  L15HW 795 Stretched 1500  (Q1) — top-left quadrant
+  V7  HW2 795 Stretched 1500    (Q2) — top-right quadrant
+  V6  HW5 795 Stretched 1500    (Q2) — top-right quadrant
+  V5  L15HW 300                 (Q3) — bottom-left quadrant
+  V4  HW2 300                   (Q4) — bottom-right quadrant
+  V3  HW5 300                   (Q4) — bottom-right quadrant
+  V2  REEL SOURCE               (Q2) — optional, disabled by default
 
 V1 (QUAD Template) is auto-generated as 4 Solid Color compound clips named
-Quad 1-4, colored Orange, with the matching transform values pre-applied as
-a copy-paste reference.
+Quad 1-4, colored Orange, with the matching quadrant transforms pre-applied.
+Disable V1 templates in Settings if not needed (faster builds).
+
+Each row has:
+  • T checkbox — check to burn the track name into the video as a text
+    overlay via Fusion TextPlus (see Title Style in Settings)
+  • Quad dropdown (Q1/Q2/Q3/Q4) — sets which quadrant the track occupies.
+    Changes sync with the Settings dialog bidirectionally.
 
 For each row you can:
   • Drag a video file from Finder directly onto the path field. The drop
@@ -614,11 +644,20 @@ in normal Build mode.
 
 Resolve Markers (Resolve Markers dropdown):
   • None — no markers
-  • Add to Timeline — places metadata markers directly on the Resolve
-    timeline at evenly spaced positions, color-cycled by track
+  • Add to Timeline — places metadata markers on the Resolve timeline
+    at evenly spaced positions. Each track gets up to 3 markers:
+      Cyan   — merged (best of both tools)
+      Blue   — MediaInfo data only (labeled [MI])
+      Green  — ffprobe data only (labeled [FP])
+    Every marker includes ALL available fields: Codec, Resolution, FPS,
+    Bit Depth, Color Space, Primaries, Transfer, Matrix, MaxCLL, MaxFALL,
+    Master Display, DV Present/Profile/Level/Compat/EL Type.
   • Export as EDL file — writes a .edl marker file you can import into
     Resolve via File > Import > Timeline > Markers from EDL
   • Both — does both
+
+JSON reports include the complete raw output from both MediaInfo and
+ffprobe under each track for deep analysis beyond the summary fields.
 
 
 METADATA EXPORT MODE

@@ -18,30 +18,35 @@ class TrackRole(Enum):
 
     QUAD_TEMPLATE = "QUAD Template"
     REEL_SOURCE = "REEL SOURCE"
-    L1SHW_795_STRETCH_1500 = "L15HW 795 Stretch 1500"
-    HW2_795_STRETCH_1500 = "HW2 795 Stretch 1500"
+    HW5_300 = "HW5 300"
+    HW2_300 = "HW2 300"
     L1SHW_300 = "L15HW 300"
-    HW2_300_NIT = "HW2 300"
-    L1SHW_HDMI = "L15HW HDMI"
+    HW5_795 = "HW5 795 Stretched 1500"
+    HW2_795 = "HW2 795 Stretched 1500"
+    L1SHW_795 = "L15HW 795 Stretched 1500"
 
 
-# Tracks the user selects files for (V1 Quad Template is auto-generated)
+# Tracks the user selects files for (V1 Quad Template is auto-generated).
+# Order: picker top to bottom = highest V number to lowest, matching Resolve.
 SELECTABLE_TRACKS = [
-    TrackRole.L1SHW_HDMI,
-    TrackRole.HW2_300_NIT,
-    TrackRole.L1SHW_300,
-    TrackRole.HW2_795_STRETCH_1500,
-    TrackRole.L1SHW_795_STRETCH_1500,
-    TrackRole.REEL_SOURCE,
+    TrackRole.L1SHW_795,       # V8 - Q1
+    TrackRole.HW2_795,         # V7 - Q2
+    TrackRole.HW5_795,         # V6 - Q2
+    TrackRole.L1SHW_300,       # V5 - Q3
+    TrackRole.HW2_300,         # V4 - Q4
+    TrackRole.HW5_300,         # V3 - Q4
+    TrackRole.REEL_SOURCE,     # V2 - Q2
 ]
 
 REQUIRED_TRACKS = {
-    TrackRole.L1SHW_795_STRETCH_1500,
-    TrackRole.HW2_795_STRETCH_1500,
+    TrackRole.L1SHW_795,
+    TrackRole.HW2_795,
+    TrackRole.HW5_795,
     TrackRole.L1SHW_300,
-    TrackRole.HW2_300_NIT,
+    TrackRole.HW2_300,
+    TrackRole.HW5_300,
 }
-OPTIONAL_TRACKS = {TrackRole.REEL_SOURCE, TrackRole.L1SHW_HDMI}
+OPTIONAL_TRACKS = {TrackRole.REEL_SOURCE}
 
 
 @dataclass
@@ -90,12 +95,13 @@ class QuadTransform:
 
 # Default quadrant assignment for each track.
 DEFAULT_TRACK_QUADRANTS: dict[TrackRole, Quadrant] = {
-    TrackRole.L1SHW_795_STRETCH_1500: Quadrant.Q1,
-    TrackRole.REEL_SOURCE: Quadrant.Q2,
-    TrackRole.HW2_795_STRETCH_1500: Quadrant.Q2,
+    TrackRole.L1SHW_795: Quadrant.Q1,
+    TrackRole.HW2_795: Quadrant.Q2,
+    TrackRole.HW5_795: Quadrant.Q2,
     TrackRole.L1SHW_300: Quadrant.Q3,
-    TrackRole.HW2_300_NIT: Quadrant.Q4,
-    TrackRole.L1SHW_HDMI: Quadrant.Q4,
+    TrackRole.HW2_300: Quadrant.Q4,
+    TrackRole.HW5_300: Quadrant.Q4,
+    TrackRole.REEL_SOURCE: Quadrant.Q2,
 }
 
 
@@ -104,17 +110,17 @@ def quadrant_offsets(quadrant: Quadrant, timeline_w: int, timeline_h: int) -> tu
     ox = timeline_w / 2
     oy = timeline_h / 2
     return {
-        Quadrant.Q1: (-ox, oy),
-        Quadrant.Q2: (ox, oy),
-        Quadrant.Q3: (-ox, -oy),
-        Quadrant.Q4: (ox, -oy),
+        Quadrant.Q1: (-ox, oy),    # top-left: Pan left, Tilt up (+Y = up in Resolve)
+        Quadrant.Q2: (ox, oy),     # top-right: Pan right, Tilt up
+        Quadrant.Q3: (-ox, -oy),   # bottom-left: Pan left, Tilt down
+        Quadrant.Q4: (ox, -oy),    # bottom-right: Pan right, Tilt down
     }[quadrant]
 
 
 # Computed quad transforms — call get_quad_transforms(timeline_w, timeline_h) to get them.
 # Timeline is always 2x source, so each quad fills exactly one quadrant at zoom=1.0.
 # Pan/Tilt offsets = timeline_dimension / 2 (positive=right/up, negative=left/down).
-# V3=Q1 (top-left), V4=Q2 (top-right), V5=Q3 (bottom-left), V6=Q4 (bottom-right).
+# V8=Q1, V7=Q2, V6=Q2, V5=Q3, V4=Q4, V3=Q4, V2=Q2.
 
 
 def get_quad_transforms(
@@ -228,25 +234,35 @@ class MetadataConfig:
     use_ffprobe: bool = True
 
 
+@dataclass
+class MetadataResult:
+    """Combined result keeping merged + per-tool metadata."""
+
+    merged: FileMetadata
+    mediainfo: FileMetadata | None = None
+    ffprobe: FileMetadata | None = None
+
+
 # Fixed bin structure matching the Chad_Template.drp layout.
 # Each entry: (bin_path, sub_bins) where bin_path is relative to Master.
 BIN_STRUCTURE: list[tuple[str, list[str]]] = [
-    ("HW5", ["Target_795", "Generic TV"]),
+    ("HW5", ["Target_795", "Target_300", "Generic TV"]),
     ("LWL15", ["Target_795", "GenericTV"]),
-    ("HWL15", ["Generic TV/HDMIScrambled", "Target_795", "Target_300"]),
+    ("HWL15", ["Target_795", "Target_300"]),
     ("SOURCE", ["Long Plata Reel", "Short Plata Reel"]),
-    ("HW2", ["Target_795", "Generic TV", "Target_300"]),
+    ("HW2", ["Target_795", "Target_300", "Generic TV"]),
 ]
 
 # Maps each track role to its target bin path (relative to Master).
 # Files are imported into these bins.
 TRACK_BIN_MAP: dict[TrackRole, str] = {
     TrackRole.REEL_SOURCE: "SOURCE",
-    TrackRole.HW2_300_NIT: "HW2/Target_300",
+    TrackRole.L1SHW_795: "HWL15/Target_795",
+    TrackRole.HW2_795: "HW2/Target_795",
+    TrackRole.HW5_795: "HW5/Target_795",
     TrackRole.L1SHW_300: "HWL15/Target_300",
-    TrackRole.HW2_795_STRETCH_1500: "HW2/Target_795",
-    TrackRole.L1SHW_795_STRETCH_1500: "HWL15/Target_795",
-    TrackRole.L1SHW_HDMI: "HWL15/Generic TV/HDMIScrambled",
+    TrackRole.HW2_300: "HW2/Target_300",
+    TrackRole.HW5_300: "HW5/Target_300",
 }
 
 
@@ -376,22 +392,17 @@ def route_filename_to_role(
       300, 300nit, 795, 1500, stretch, hdmi, reel, source). This
       preserves the legacy behavior for users who never customize.
 
-    Examples that all route to HW2_300_NIT (default track names):
-      DVP1.0_Plata_Reel_HW2_300nit_v002.mov
-      DVP1.0_HW_2_300_nit_v002.mov
-      DVP1.0-HW2-300nit-v002.mov
-      DVP1.0 HW2 300 nit v002.mov
+    Examples that all route to HW2_300 (default track names):
+      DVP1.0_Plata_Reel_HW2_300_v002.mov
+      DVP1.0-HW2-300-v002.mov
 
     Examples for the other default-named roles:
       L15HW_Default_Plata_300_v002.mp4               → L1SHW_300
-      DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      → HW2_795_STRETCH_1500
-      L15HW_Default_Plata_HWL15_795_1500_v002.mp4    → L1SHW_795_STRETCH_1500
-      Reel_HDMI_Generic_TV.mov                       → L1SHW_HDMI
+      HW5_300_test_v002.mov                          → HW5_300
+      DVP1.0_Reel_HW2_795_Stretch_1500_v002.mov      → HW2_795
+      HW5_795_Stretched_1500_v002.mov                → HW5_795
+      L15HW_Default_HWL15_795_1500_v002.mp4          → L1SHW_795
       CHARTSONLY_Reel_2020_ProResXQ.mov              → REEL_SOURCE
-
-    Custom-name example (user renamed HW2 300 nit → Sony BVM 300):
-      Sony_BVM_300_v001.mov                          → HW2_300_NIT
-      (matches via tokens [sony, bvm, 300] from the custom track name)
 
     Note: HDMI is checked FIRST in the hard-coded fallback because
     L1SHW HDMI files often also contain "L1SHW", "HW2", or "L15HW".
@@ -426,27 +437,27 @@ def route_filename_to_role(
 
     # ----- PHASE 2: Hard-coded keyword fallback (legacy default vocab) -
 
-    # HDMI is most specific — check first
-    if "hdmi" in name:
-        return TrackRole.L1SHW_HDMI
-
     # The 795/1500/stretch family
     is_stretch = ("795" in name) or ("1500" in name) or ("stretch" in name)
 
-    # Distinguish HW2 (the L15-HW2 hardware variants) from L1SHW
-    # (the L15 software / HWL15 variants)
+    # Distinguish hardware variants: HW2, HW5, L15HW/L1SHW/HWL15
     is_hw2 = "hw2" in name
+    is_hw5 = "hw5" in name
     is_l1shw = ("l1shw" in name) or ("l15hw" in name) or ("hwl15" in name)
 
     if is_hw2 and is_stretch:
-        return TrackRole.HW2_795_STRETCH_1500
+        return TrackRole.HW2_795
+    if is_hw5 and is_stretch:
+        return TrackRole.HW5_795
     if is_l1shw and is_stretch:
-        return TrackRole.L1SHW_795_STRETCH_1500
+        return TrackRole.L1SHW_795
 
-    # The 300-nit family
+    # The 300 family
     is_300 = ("300" in name) or ("300nit" in name)
     if is_hw2 and is_300:
-        return TrackRole.HW2_300_NIT
+        return TrackRole.HW2_300
+    if is_hw5 and is_300:
+        return TrackRole.HW5_300
     if is_l1shw and is_300:
         return TrackRole.L1SHW_300
 

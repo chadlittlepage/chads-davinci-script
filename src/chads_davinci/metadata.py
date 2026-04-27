@@ -24,6 +24,7 @@ from chads_davinci.models import (
     FileMetadata,
     HDR10Meta,
     MetadataConfig,
+    MetadataResult,
     TrackAssignment,
 )
 
@@ -350,7 +351,7 @@ def _resolve_folder_to_first_frame(folder: Path) -> Path | None:
 PARALLEL_METADATA_EXTRACTION = True
 
 
-def extract_metadata(file_path: Path, config: MetadataConfig) -> FileMetadata:
+def extract_metadata(file_path: Path, config: MetadataConfig) -> MetadataResult:
     """Extract metadata using configured tools.
 
     If `file_path` points at a directory, transparently substitute the
@@ -387,12 +388,14 @@ def extract_metadata(file_path: Path, config: MetadataConfig) -> FileMetadata:
         fp_meta = extract_ffprobe(file_path) if config.use_ffprobe else None
 
     if mi_meta and fp_meta:
-        return merge_metadata(mi_meta, fp_meta)
-    if mi_meta:
-        return mi_meta
-    if fp_meta:
-        return fp_meta
-    return FileMetadata(file_path=file_path)
+        merged = merge_metadata(mi_meta, fp_meta)
+    elif mi_meta:
+        merged = mi_meta
+    elif fp_meta:
+        merged = fp_meta
+    else:
+        merged = FileMetadata(file_path=file_path)
+    return MetadataResult(merged=merged, mediainfo=mi_meta, ffprobe=fp_meta)
 
 
 def _metadata_rows() -> list[tuple[str, callable]]:
@@ -420,22 +423,14 @@ def print_metadata_comparison(
     assignments: list[TrackAssignment],
     config: MetadataConfig,
     pump: "callable | None" = None,
-) -> list[tuple[TrackAssignment, FileMetadata]]:
-    """Extract and display a comparison table. Returns the (assignment, metadata) results.
+) -> list[tuple[TrackAssignment, MetadataResult]]:
+    """Extract and display a comparison table. Returns (assignment, MetadataResult) pairs.
 
-    De-duplicates extraction by file path: the typical workflow assigns
-    the same source file to all 6 tracks, and mediainfo + ffprobe over a
-    network volume can take ~2s per call. Running them once and reusing
-    the result for every row that points to the same path collapses a
-    12-second phase to ~2 seconds.
-
-    `pump` is an optional callback (typically `progress.pump`) that
-    services the Cocoa runloop between each file extraction so the
-    progress window stays responsive and the app doesn't beachball
-    during long network-volume metadata reads.
+    MetadataResult contains .merged (combined), .mediainfo (MI-only), .ffprobe (FP-only)
+    so callers can access per-tool data for markers and reports.
     """
-    results: list[tuple[TrackAssignment, FileMetadata]] = []
-    cache: dict[str, FileMetadata] = {}
+    results: list[tuple[TrackAssignment, MetadataResult]] = []
+    cache: dict[str, MetadataResult] = {}
 
     from chads_davinci.models import detect_image_sequence
 
@@ -453,8 +448,6 @@ def print_metadata_comparison(
             results.append((assignment, cached))
             continue
 
-        # Detect image sequence (DPX, TIFF, EXR, JPEG, etc.) and report
-        # the FULL sequence frame count instead of just the dropped file.
         seq = detect_image_sequence(assignment.file_path)
         if seq:
             frame_count, pattern = seq
@@ -466,12 +459,10 @@ def print_metadata_comparison(
             console.print(
                 f"Extracting metadata: [cyan]{assignment.file_path.name}[/cyan]"
             )
-        meta = extract_metadata(assignment.file_path, config)
-        cache[cache_key] = meta
-        results.append((assignment, meta))
+        result = extract_metadata(assignment.file_path, config)
+        cache[cache_key] = result
+        results.append((assignment, result))
 
-        # Pump the runloop so the progress window stays responsive
-        # during the potentially-slow network metadata reads.
         if pump is not None:
             try:
                 pump()
@@ -482,7 +473,7 @@ def print_metadata_comparison(
         console.print("[yellow]No files to compare[/yellow]")
         return results
 
-    # Summary table
+    # Summary table (uses merged data)
     table = Table(title="Metadata Comparison", show_lines=True)
     table.add_column("Property", style="bold")
 
@@ -490,7 +481,7 @@ def print_metadata_comparison(
         table.add_column(assignment.role.value, min_width=18)
 
     for label, getter in _metadata_rows():
-        values = [getter(meta) for _, meta in results]
+        values = [getter(mr.merged) for _, mr in results]
         table.add_row(label, *values)
 
     console.print()
@@ -514,7 +505,7 @@ def _ensure_dir(custom_dir: Path | str | None = None) -> Path:
 
 
 def save_report_text(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     out_dir: Path | str | None = None,
 ) -> Path:
@@ -534,7 +525,7 @@ def save_report_text(
     lines.append("-" * (col_w * len(headers)))
 
     for label, getter in _metadata_rows():
-        row = [label] + [str(getter(meta)) for _, meta in results]
+        row = [label] + [str(getter(mr.merged)) for _, mr in results]
         lines.append("  ".join(c.ljust(col_w) for c in row))
 
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -542,7 +533,7 @@ def save_report_text(
 
 
 def save_report_csv(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     out_dir: Path | str | None = None,
 ) -> Path:
@@ -553,26 +544,25 @@ def save_report_csv(
         writer = csv.writer(f)
         writer.writerow(headers)
         for label, getter in _metadata_rows():
-            writer.writerow([label] + [str(getter(meta)) for _, meta in results])
+            writer.writerow([label] + [str(getter(mr.merged)) for _, mr in results])
     return out
 
 
 def save_report_json(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     out_dir: Path | str | None = None,
 ) -> Path:
-    """Save metadata as a structured JSON file."""
+    """Save metadata as a structured JSON file with per-tool raw data."""
     out = _ensure_dir(out_dir) / f"{project_name}_metadata.json"
     data = {
         "project": project_name,
         "generated": datetime.now().isoformat(),
         "tracks": [],
     }
-    for assignment, meta in results:
-        data["tracks"].append({
-            "track": assignment.role.value,
-            "file": str(assignment.file_path),
+
+    def _meta_to_dict(meta: FileMetadata) -> dict:
+        return {
             "codec": meta.codec,
             "resolution": meta.resolution,
             "frame_rate": meta.frame_rate,
@@ -593,13 +583,27 @@ def save_report_json(
                 "bl_signal_compatibility_id": meta.dolby_vision.bl_signal_compatibility_id,
                 "el_type": meta.dolby_vision.el_type,
             },
-        })
+        }
+
+    for assignment, mr in results:
+        entry = {
+            "track": assignment.role.value,
+            "file": str(assignment.file_path),
+            "merged": _meta_to_dict(mr.merged),
+        }
+        if mr.mediainfo:
+            entry["mediainfo"] = _meta_to_dict(mr.mediainfo)
+            entry["mediainfo"]["raw"] = mr.mediainfo.raw_mediainfo
+        if mr.ffprobe:
+            entry["ffprobe"] = _meta_to_dict(mr.ffprobe)
+            entry["ffprobe"]["raw"] = mr.ffprobe.raw_ffprobe
+        data["tracks"].append(entry)
     out.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return out
 
 
 def save_report_html(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     out_dir: Path | str | None = None,
 ) -> Path:
@@ -610,7 +614,7 @@ def save_report_html(
     headers = "".join(f"<th>{html_escape(a.role.value)}</th>" for a, _ in results)
     rows_html = ""
     for label, getter in _metadata_rows():
-        cells = "".join(f"<td>{html_escape(str(getter(meta)))}</td>" for _, meta in results)
+        cells = "".join(f"<td>{html_escape(str(getter(mr.merged)))}</td>" for _, mr in results)
         rows_html += f"<tr><th>{html_escape(label)}</th>{cells}</tr>\n"
 
     html = f"""<!DOCTYPE html>
@@ -636,7 +640,7 @@ def save_report_html(
 
 
 def save_report(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     fmt: str,
     out_dir: Path | str | None = None,
@@ -658,7 +662,7 @@ def save_report(
 
 
 def export_edl_markers(
-    results: list[tuple[TrackAssignment, FileMetadata]],
+    results: list[tuple[TrackAssignment, MetadataResult]],
     project_name: str,
     frame_rate: str = "23.976",
     out_dir: Path | str | None = None,
@@ -676,22 +680,31 @@ def export_edl_markers(
     ]
 
     # Each track gets one marker at frame 0
-    for i, (assignment, meta) in enumerate(results, start=1):
+    for i, (assignment, mr) in enumerate(results, start=1):
+        meta = mr.merged
         track_name = assignment.role.value
-        # Build marker comment with key metadata
         comment_parts = [
             f"{track_name}",
             f"Codec: {meta.codec}",
             f"Res: {meta.resolution}",
+            f"FPS: {meta.frame_rate}",
             f"BitDepth: {meta.bit_depth or 'N/A'}",
             f"ColorSpace: {meta.color_space}",
+            f"Primaries: {meta.hdr10.color_primaries or 'N/A'}",
             f"Transfer: {meta.hdr10.transfer_characteristics or 'N/A'}",
+            f"Matrix: {meta.hdr10.matrix_coefficients or 'N/A'}",
             f"MaxCLL: {meta.hdr10.max_cll or 'N/A'}",
             f"MaxFALL: {meta.hdr10.max_fall or 'N/A'}",
+            f"MasterDisp: {meta.hdr10.master_display or 'N/A'}",
             f"DV: {'Yes' if meta.dolby_vision.rpu_present else 'No'}",
         ]
         if meta.dolby_vision.rpu_present:
-            comment_parts.append(f"DV Profile: {meta.dolby_vision.profile}")
+            comment_parts.extend([
+                f"DV Profile: {meta.dolby_vision.profile}",
+                f"DV Level: {meta.dolby_vision.level}",
+                f"DV Compat: {meta.dolby_vision.bl_signal_compatibility_id}",
+                f"DV EL: {meta.dolby_vision.el_type or 'N/A'}",
+            ])
 
         comment = " | ".join(comment_parts)
 

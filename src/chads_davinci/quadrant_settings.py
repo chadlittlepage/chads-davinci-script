@@ -58,11 +58,15 @@ class QuadPreviewView(NSView):
         if self is not None:
             self._active_quad = None  # "Q1", "Q2", "Q3", "Q4" or None
             self._track_name = ""
+            self._title_font_name = "Helvetica Neue"
+            self._title_opacity = 1.0
         return self
 
-    def set_active(self, quad_str, track_name=""):
+    def set_active(self, quad_str, track_name="", font_name="Helvetica Neue", opacity=1.0):
         self._active_quad = quad_str
         self._track_name = track_name or ""
+        self._title_font_name = font_name or "Helvetica Neue"
+        self._title_opacity = opacity
         self.setNeedsDisplay_(True)
 
     def drawRect_(self, rect):
@@ -122,8 +126,11 @@ class QuadPreviewView(NSView):
         # Quad labels + active track name
         dim_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(0.5, 0.5, 0.48, 1.0)
         bright_color = NSColor.whiteColor()
-        label_font = NSFont.systemFontOfSize_(10)
-        name_font = NSFont.boldSystemFontOfSize_(11)
+        label_font = NSFont.systemFontOfSize_(14)
+        # Use the actual title font for the track name preview
+        title_font = NSFont.fontWithName_size_(self._title_font_name, 19)
+        if title_font is None:
+            title_font = NSFont.systemFontOfSize_(12)
 
         for q_name, q_rect in quads.items():
             is_active = (q_name == self._active_quad)
@@ -137,19 +144,24 @@ class QuadPreviewView(NSView):
                 NSForegroundColorAttributeName: bright_color if is_active else dim_color,
             }
             label_str = NSString.stringWithString_(q_name)
-            lx = qx + qw / 2.0 - 8
-            ly = qy + qh / 2.0
+            label_size = label_str.sizeWithAttributes_(attrs)
+            lx = qx + (qw - float(label_size.width)) / 2.0
+            ly = qy + qh / 2.0 + 8
             label_str.drawAtPoint_withAttributes_((lx, ly), attrs)
 
             if is_active and self._track_name:
+                name_color = NSColor.colorWithCalibratedRed_green_blue_alpha_(
+                    1.0, 1.0, 1.0, self._title_opacity
+                )
                 name_attrs = {
-                    NSFontAttributeName: name_font,
-                    NSForegroundColorAttributeName: bright_color,
+                    NSFontAttributeName: title_font,
+                    NSForegroundColorAttributeName: name_color,
                 }
                 name_str = NSString.stringWithString_(self._track_name)
                 name_size = name_str.sizeWithAttributes_(name_attrs)
                 nx = qx + (qw - float(name_size.width)) / 2.0
-                ny = ly - 18
+                # Halfway between Q label and bottom of quadrant
+                ny = qy + (ly - qy) / 2.0 - float(name_size.height) / 2.0
                 name_str.drawAtPoint_withAttributes_((nx, ny), name_attrs)
 
 # Module-level reference to the currently-open dialog controller, so the
@@ -186,11 +198,19 @@ def fusion_size_to_pt(fusion: float) -> int:
     closest = min(TITLE_POINT_SIZES, key=lambda s: abs(s - pt))
     return closest
 
+TITLE_OPACITY_OPTIONS = {
+    "100%": 1.0,
+    "75%": 0.75,
+    "50%": 0.5,
+    "25%": 0.25,
+}
+
 TITLE_STYLE_DEFAULTS = {
     "font": "Helvetica Neue",
     "size_pt": 24,
     "color": "White",
     "placement": "Lower Right",
+    "opacity": "100%",
 }
 
 TITLE_COLORS = {
@@ -342,6 +362,7 @@ class QuadrantSettingsController(NSObject):
             self.title_size_popup = None
             self.title_color_popup = None
             self.title_placement_popup = None
+            self.title_opacity_popup = None
         return self
 
     # ---- Loading ---------------------------------------------------------
@@ -528,7 +549,15 @@ class QuadrantSettingsController(NSObject):
         display_name = ""
         if self._current_row >= 0 and self._current_row < len(self.entries):
             display_name = self.entries[self._current_row][1]
-        self.quad_preview.set_active(q_str, display_name)
+        # Get current title font and opacity from the popups
+        font_name = "Helvetica Neue"
+        if self.title_font_popup:
+            font_name = str(self.title_font_popup.titleOfSelectedItem())
+        opacity = 1.0
+        if self.title_opacity_popup:
+            op_str = str(self.title_opacity_popup.titleOfSelectedItem())
+            opacity = TITLE_OPACITY_OPTIONS.get(op_str, 1.0)
+        self.quad_preview.set_active(q_str, display_name, font_name=font_name, opacity=opacity)
 
     # ---- Actions ---------------------------------------------------------
 
@@ -556,6 +585,23 @@ class QuadrantSettingsController(NSObject):
             self.field_refs["position_x"].setStringValue_(f"{px:.3f}")
         if self.field_refs.get("position_y"):
             self.field_refs["position_y"].setStringValue_(f"{py:.3f}")
+        self._update_quad_preview()
+
+        # Sync back to picker's quad dropdown if open
+        try:
+            from chads_davinci.file_picker import get_current_controller
+            from chads_davinci.models import TrackRole
+            ctrl = get_current_controller()
+            if ctrl is not None and not key.startswith("extra:"):
+                role_map = {r.name: r for r in TrackRole}
+                role = role_map.get(key)
+                if role and role in ctrl.quad_popups:
+                    ctrl.quad_popups[role].selectItemWithTitle_(q_str)
+        except Exception:
+            pass
+
+    def titleStyleChanged_(self, sender):
+        """Refresh quad preview when title font changes."""
         self._update_quad_preview()
 
     def windowWillClose_(self, notification):
@@ -595,6 +641,8 @@ class QuadrantSettingsController(NSObject):
             title_style["color"] = str(self.title_color_popup.titleOfSelectedItem())
         if self.title_placement_popup:
             title_style["placement"] = str(self.title_placement_popup.titleOfSelectedItem())
+        if self.title_opacity_popup:
+            title_style["opacity"] = str(self.title_opacity_popup.titleOfSelectedItem())
 
         save_quadrant_settings({
             "version": 1,
@@ -649,7 +697,7 @@ def show_quadrant_settings() -> None:
     controller = QuadrantSettingsController.alloc().init()
     controller._load_working()
 
-    win_w, win_h = 820, 800
+    win_w, win_h = 820, 1005
     style = (
         NSWindowStyleMaskTitled
         | NSWindowStyleMaskClosable
@@ -813,7 +861,7 @@ def show_quadrant_settings() -> None:
 
     # --- Quad Preview ---
     y -= 10
-    preview_h = 140
+    preview_h = 306
     preview = QuadPreviewView.alloc().initWithFrame_(
         NSMakeRect(detail_x, y - preview_h, detail_w, preview_h)
     )
@@ -844,6 +892,8 @@ def show_quadrant_settings() -> None:
     saved_font = saved_ts.get("font", TITLE_STYLE_DEFAULTS["font"])
     if saved_font in TITLE_FONTS:
         font_popup.selectItemWithTitle_(saved_font)
+    font_popup.setTarget_(controller)
+    font_popup.setAction_("titleStyleChanged:")
     content.addSubview_(font_popup)
     controller.title_font_popup = font_popup
 
@@ -889,6 +939,23 @@ def show_quadrant_settings() -> None:
         place_popup.selectItemWithTitle_(saved_place)
     content.addSubview_(place_popup)
     controller.title_placement_popup = place_popup
+
+    # Row 3: Opacity
+    y -= 32
+    ol = _make_label("Opacity:", NSMakeRect(detail_x, y + 2, 60, 18), size=12)
+    content.addSubview_(ol)
+    opacity_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+        NSMakeRect(detail_x + 65, y, 80, 24), False
+    )
+    for oname in TITLE_OPACITY_OPTIONS:
+        opacity_popup.addItemWithTitle_(oname)
+    saved_opacity = saved_ts.get("opacity", TITLE_STYLE_DEFAULTS["opacity"])
+    if saved_opacity in TITLE_OPACITY_OPTIONS:
+        opacity_popup.selectItemWithTitle_(saved_opacity)
+    opacity_popup.setTarget_(controller)
+    opacity_popup.setAction_("titleStyleChanged:")
+    content.addSubview_(opacity_popup)
+    controller.title_opacity_popup = opacity_popup
 
     # --- Bottom buttons ---
     reset_btn = NSButton.alloc().initWithFrame_(

@@ -611,7 +611,7 @@ def create_quad_timeline(
     track_names: dict[TrackRole, str] | None = None,
     start_timecode: str = "00:00:00:00",
 ) -> Any:
-    """Create a timeline with 7 video tracks and quad transforms applied."""
+    """Create a timeline with video tracks for all selectable roles + V1 template."""
     media_pool = ctx.media_pool
 
     # Create empty timeline
@@ -626,12 +626,14 @@ def create_quad_timeline(
     # Set timeline start timecode
     timeline.SetStartTimecode(start_timecode)
 
-    # Ensure we have 7 video tracks
+    # Ensure we have enough video tracks: 1 (V1 template) + selectable tracks
+    from chads_davinci.models import SELECTABLE_TRACKS as _sel_tracks
+    needed_tracks = 1 + len(_sel_tracks)  # V1 + all selectable roles
     current_track_count = timeline.GetTrackCount("video")
-    for _ in range(7 - current_track_count):
+    for _ in range(needed_tracks - current_track_count):
         timeline.AddTrack("video")
 
-    console.print(f"Created timeline: [green]{timeline_name}[/green] with 7 video tracks")
+    console.print(f"Created timeline: [green]{timeline_name}[/green] with {needed_tracks} video tracks")
     console.print(f"  Start timecode: {start_timecode}")
 
     # Apply custom track names
@@ -742,8 +744,9 @@ def _create_transform_templates(
     media_pool.SetCurrentFolder(root_folder)
 
     # Get total video duration — try timeline clips first, then media pool items
-    quad_roles = [TrackRole.HW2_300_NIT, TrackRole.L1SHW_300,
-                  TrackRole.HW2_795_STRETCH_1500, TrackRole.L1SHW_795_STRETCH_1500]
+    quad_roles = [TrackRole.HW2_300, TrackRole.L1SHW_300,
+                  TrackRole.HW2_795, TrackRole.L1SHW_795,
+                  TrackRole.HW5_300, TrackRole.HW5_795]
     total_frames = 0
 
     # Try from timeline clips
@@ -779,9 +782,24 @@ def _create_transform_templates(
         f"{quad_duration} per quad ({generators_per_quad} generators each)"
     )
 
-    quad_names = ["Quad 1", "Quad 2", "Quad 3", "Quad 4"]
+    from chads_davinci.models import Quadrant, quadrant_offsets
 
-    for i, name in enumerate(quad_names):
+    # V1 templates map directly to quadrants, not to specific track roles.
+    quad_map = [
+        ("Quad 1", Quadrant.Q1),
+        ("Quad 2", Quadrant.Q2),
+        ("Quad 3", Quadrant.Q3),
+        ("Quad 4", Quadrant.Q4),
+    ]
+
+    # Get timeline resolution for correct offsets
+    try:
+        tl_w = int(ctx.project.GetSetting("timelineResolutionWidth") or 3840)
+        tl_h = int(ctx.project.GetSetting("timelineResolutionHeight") or 2160)
+    except Exception:
+        tl_w, tl_h = 3840, 2160
+
+    for name, quadrant in quad_map:
         # Track how many clips are on V1 before we insert
         clips_before = timeline.GetItemListInTrack("video", track_number) or []
         count_before = len(clips_before)
@@ -804,20 +822,12 @@ def _create_transform_templates(
             console.print(f"  [red]Failed to create compound clip for {name}[/red]")
             continue
 
-        # Apply quad transform
-        transform = models.QUAD_TRANSFORMS.get(quad_roles[i])
-        if transform:
-            compound.SetProperty("ZoomX", transform.zoom_x)
-            compound.SetProperty("ZoomY", transform.zoom_y)
-            compound.SetProperty("Pan", transform.position_x)
-            compound.SetProperty("Tilt", transform.position_y)
-            compound.SetProperty("RotationAngle", transform.rotation_angle)
-            compound.SetProperty("AnchorPointX", transform.anchor_point_x)
-            compound.SetProperty("AnchorPointY", transform.anchor_point_y)
-            compound.SetProperty("Pitch", transform.pitch)
-            compound.SetProperty("Yaw", transform.yaw)
-            compound.SetProperty("FlipX", bool(transform.flip_h))
-            compound.SetProperty("FlipY", bool(transform.flip_v))
+        # Apply quadrant transform directly
+        px, py = quadrant_offsets(quadrant, tl_w, tl_h)
+        compound.SetProperty("ZoomX", 1.0)
+        compound.SetProperty("ZoomY", 1.0)
+        compound.SetProperty("Pan", px)
+        compound.SetProperty("Tilt", py)
 
         # Color Orange
         compound.SetClipColor("Orange")
@@ -919,13 +929,18 @@ def add_extra_tracks(
             cfg = tf_lookup.get(name)
             if not cfg:
                 from chads_davinci.models import Quadrant, quadrant_offsets
-                # Default: source_res * 2 = timeline_res
                 try:
                     tl_w = int(ctx.project.GetSetting("timelineResolutionWidth") or 3840)
                     tl_h = int(ctx.project.GetSetting("timelineResolutionHeight") or 2160)
                 except Exception:
                     tl_w, tl_h = 3840, 2160
-                px, py = quadrant_offsets(Quadrant.Q1, tl_w, tl_h)
+                # Use quad from the extras data (picker dropdown), default Q1
+                q_str = ex.get("quad", "Q1")
+                try:
+                    quad = Quadrant(q_str)
+                except ValueError:
+                    quad = Quadrant.Q1
+                px, py = quadrant_offsets(quad, tl_w, tl_h)
                 cfg = {"zoom_x": 1.0, "zoom_y": 1.0, "position_x": px, "position_y": py}
             if cfg:
                 clips = timeline.GetItemListInTrack("video", new_track_num)
@@ -1006,13 +1021,13 @@ def add_text_overlays(
 
     # Title style defaults
     from chads_davinci.quadrant_settings import (
-        TITLE_STYLE_DEFAULTS, TITLE_COLORS, TITLE_PLACEMENTS, pt_to_fusion_size,
+        TITLE_STYLE_DEFAULTS, TITLE_COLORS, TITLE_PLACEMENTS,
+        TITLE_OPACITY_OPTIONS, pt_to_fusion_size,
     )
     ts = dict(TITLE_STYLE_DEFAULTS)
     if title_style:
         ts.update(title_style)
     font_name = ts.get("font", "Helvetica Neue")
-    # Convert point size to Fusion size; handle legacy "size" key
     if "size_pt" in ts:
         font_size = pt_to_fusion_size(int(ts["size_pt"]))
     elif "size" in ts:
@@ -1023,6 +1038,8 @@ def add_text_overlays(
     color_rgb = TITLE_COLORS.get(color_name, (1.0, 1.0, 1.0))
     placement_name = ts.get("placement", "Lower Right")
     placement_xy = TITLE_PLACEMENTS.get(placement_name, [0.85, 0.08])
+    opacity_name = ts.get("opacity", "100%")
+    opacity_val = TITLE_OPACITY_OPTIONS.get(opacity_name, 1.0)
     console.print(
         f"  Style: {font_name} {ts.get('size_pt', '?')}pt, "
         f"{color_name}, {placement_name}"
@@ -1080,7 +1097,7 @@ def add_text_overlays(
         text_tool.SetInput("Red1", color_rgb[0])
         text_tool.SetInput("Green1", color_rgb[1])
         text_tool.SetInput("Blue1", color_rgb[2])
-        text_tool.SetInput("Alpha1", 1.0)
+        text_tool.SetInput("Alpha1", opacity_val)
 
         merge = comp.AddTool("Merge", -32768, -32768)
         if merge:

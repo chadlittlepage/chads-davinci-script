@@ -71,7 +71,7 @@ FRAME_RATES = ["23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60"]
 
 # Vertical gap between the extras section and adjacent rows (matches the gap
 # between fixed file rows: row_h(36) - field_h(24) = 12).
-EXTRAS_GAP = 12
+EXTRAS_GAP = 6
 
 # Source resolution presets — timeline will be 2x source so quads fit at 1:1
 SOURCE_RESOLUTIONS = [
@@ -165,6 +165,8 @@ class PickerResult:
     # Tracks that should get a text overlay with the track name.
     # Dict of role_name (str) -> title_text (str). Extras use "extra:Name".
     title_tracks: dict[str, str] = field(default_factory=dict)
+    # Quadrant overrides from the picker: role_name -> "Q1"/"Q2"/"Q3"/"Q4"
+    quad_overrides: dict[str, str] = field(default_factory=dict)
 
 
 def _get_resolve_databases() -> list[dict[str, str]]:
@@ -510,6 +512,7 @@ class FilePickerController(NSObject):
             # Map NSControl tag (int) -> TrackRole. Tags are stable across PyObjC calls.
             self.button_roles = {}
             self.title_checks = {}  # TrackRole -> NSButton checkbox for text overlay
+            self.quad_popups = {}   # TrackRole -> NSPopUpButton for quadrant selection
             self.db_list = []
             self.db_type_popup = None
             self.db_name_popup = None
@@ -573,6 +576,29 @@ class FilePickerController(NSObject):
             return
         self.assignments[role] = None
         self.path_fields[role].setStringValue_("")
+
+    def pickerQuadChanged_(self, sender):
+        """Quad dropdown changed in the picker — sync to Settings if open."""
+        role = self.button_roles.get(int(sender.tag()))
+        if role is None:
+            return
+        new_quad = str(sender.titleOfSelectedItem())
+        try:
+            from chads_davinci.quadrant_settings import get_current_dialog
+            dlg = get_current_dialog()
+            if dlg is not None and role.name in dlg.working:
+                from chads_davinci.models import Quadrant, quadrant_offsets
+                dlg.working[role.name]["quadrant"] = new_quad
+                try:
+                    quad = Quadrant(new_quad)
+                    px, py = quadrant_offsets(quad, dlg.tl_w, dlg.tl_h)
+                    dlg.working[role.name]["position_x"] = px
+                    dlg.working[role.name]["position_y"] = py
+                except (ValueError, KeyError):
+                    pass
+                dlg._populate_detail()
+        except Exception:
+            pass
 
     def pathFieldChanged_(self, sender):
         """Called when a path field changes (drop or manual entry).
@@ -993,16 +1019,6 @@ class FilePickerController(NSObject):
                 if val.strip():
                     self._set_file(role, val)
 
-        # Validate required tracks
-        missing = []
-        for role in SELECTABLE_TRACKS:
-            if role not in OPTIONAL_TRACKS and self.assignments[role] is None:
-                missing.append(str(self.name_fields[role].stringValue()))
-
-        if missing:
-            self._set_status(f"Missing required: {', '.join(missing)}")
-            return
-
         if not self.resolve_connected:
             self._set_status("Please connect to Resolve first")
             return
@@ -1076,6 +1092,10 @@ class FilePickerController(NSObject):
             bin_rename_map=bin_rename_map,
             extras=self._capture_extras(),
             title_tracks=self._capture_title_tracks(),
+            quad_overrides={
+                role.name: str(popup.titleOfSelectedItem())
+                for role, popup in self.quad_popups.items()
+            },
         )
 
         self._save_user_settings_from_form()
@@ -1103,7 +1123,7 @@ class FilePickerController(NSObject):
             f = v.frame()
             v.setFrameOrigin_((f.origin.x, f.origin.y + delta))
         for row in self.extras:
-            for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
+            for key in ("title_chk", "quad_popup", "name_field", "path_field", "browse_btn", "del_btn"):
                 v = row.get(key)
                 if v is None:
                     continue
@@ -1124,18 +1144,18 @@ class FilePickerController(NSObject):
             # extras[-1] (bottom) sits EXTRAS_GAP above REEL SOURCE.
             # extras[0]  (top)    sits row_h*(n-1) above extras[-1].
             target_y = self.col_headers_y_initial + EXTRAS_GAP + (n - 1 - j) * row_h
-            for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
+            for key in ("title_chk", "quad_popup", "name_field", "path_field", "browse_btn", "del_btn"):
                 v = row.get(key)
                 if v is None:
                     continue
                 f = v.frame()
                 v.setFrameOrigin_((f.origin.x, target_y))
 
-    def _build_extra_row(self, y, name_text="", path_text="", title_on=False):
+    def _build_extra_row(self, y, name_text="", path_text="", title_on=False, quad_val="Q1"):
         """Construct widgets for a single extra row at content y. Returns dict."""
         margin = 20
         chk_w = 22
-        label_w = 180
+        label_w = 230
         field_w = 580
         btn_w = 90
         tag_browse = self.next_extra_tag
@@ -1150,8 +1170,19 @@ class FilePickerController(NSObject):
         title_chk.setToolTip_("Add track name as text overlay on the video")
         title_chk.setState_(1 if title_on else 0)
 
+        # Quad dropdown for extra tracks
+        quad_w = 55
+        from chads_davinci.models import Quadrant
+        quad_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(margin + chk_w, y, quad_w, 24), False
+        )
+        for q in Quadrant:
+            quad_popup.addItemWithTitle_(q.value)
+        quad_popup.selectItemWithTitle_(quad_val or "Q1")
+        quad_popup.setToolTip_("Quadrant position for this track")
+
         name_field = _make_textfield(name_text or f"Extra {len(self.extras) + 1}",
-                                     NSMakeRect(margin + chk_w, y, label_w - chk_w, 24))
+                                     NSMakeRect(margin + chk_w + quad_w + 4, y, label_w - chk_w - quad_w - 4, 24))
         name_field.setTarget_(self)
         name_field.setAction_("extraNameFieldChanged:")
 
@@ -1190,6 +1221,7 @@ class FilePickerController(NSObject):
 
         content = self.window.contentView()
         content.addSubview_(title_chk)
+        content.addSubview_(quad_popup)
         content.addSubview_(name_field)
         content.addSubview_(path_field)
         content.addSubview_(browse_btn)
@@ -1197,6 +1229,7 @@ class FilePickerController(NSObject):
 
         return {
             "title_chk": title_chk,
+            "quad_popup": quad_popup,
             "name_field": name_field,
             "path_field": path_field,
             "browse_btn": browse_btn,
@@ -1205,7 +1238,7 @@ class FilePickerController(NSObject):
             "tag_del": tag_del,
         }
 
-    def _add_extra_row(self, name_text="", path_text=""):
+    def _add_extra_row(self, name_text="", path_text="", title_on=False, quad_val="Q1"):
         """Add a new extra row at the TOP of the extras section (just below
         the column headers, ABOVE REEL SOURCE). File rows shift down visually
         to make room."""
@@ -1219,7 +1252,10 @@ class FilePickerController(NSObject):
         for v in self.upper_views:
             f = v.frame()
             v.setFrameOrigin_((f.origin.x, f.origin.y + delta))
-        new_row = self._build_extra_row(self.col_headers_y_initial, name_text, path_text)
+        new_row = self._build_extra_row(
+            self.col_headers_y_initial, name_text, path_text,
+            title_on=title_on, quad_val=quad_val,
+        )
         self.extras.insert(0, new_row)
         self._layout_extras()
 
@@ -1237,7 +1273,7 @@ class FilePickerController(NSObject):
         if idx is None:
             return
         row = self.extras.pop(idx)
-        for key in ("title_chk", "name_field", "path_field", "browse_btn", "del_btn"):
+        for key in ("title_chk", "quad_popup", "name_field", "path_field", "browse_btn", "del_btn"):
             v = row.get(key)
             if v is not None:
                 v.removeFromSuperview()
@@ -1282,7 +1318,7 @@ class FilePickerController(NSObject):
     def _clear_extras(self):
         """Remove all extra rows (no resize/shift; caller handles)."""
         for row in self.extras:
-            for key in ("name_field", "path_field", "browse_btn", "del_btn"):
+            for key in ("title_chk", "quad_popup", "name_field", "path_field", "browse_btn", "del_btn"):
                 v = row.get(key)
                 if v is not None:
                     v.removeFromSuperview()
@@ -1305,16 +1341,19 @@ class FilePickerController(NSObject):
             self._add_extra_row(
                 name_text=ex.get("name", ""),
                 path_text=ex.get("file_path") or "",
+                title_on=ex.get("title", False),
+                quad_val=ex.get("quad", "Q1"),
             )
 
     def _capture_extras(self):
-        """Snapshot extras into a list of {name, file_path, title} dicts."""
+        """Snapshot extras into a list of {name, file_path, title, quad} dicts."""
         out = []
         for row in self.extras:
             name = str(row["name_field"].stringValue()).strip()
             path = str(row["path_field"].stringValue()).strip()
             title_on = bool(row.get("title_chk") and row["title_chk"].state())
-            out.append({"name": name, "file_path": path or None, "title": title_on})
+            quad = str(row["quad_popup"].titleOfSelectedItem()) if row.get("quad_popup") else "Q1"
+            out.append({"name": name, "file_path": path or None, "title": title_on, "quad": quad})
         return out
 
     def _capture_title_tracks(self):
@@ -1489,6 +1528,10 @@ class FilePickerController(NSObject):
             "title_checks": {
                 role.name: bool(chk.state())
                 for role, chk in self.title_checks.items()
+            },
+            "quad_overrides": {
+                role.name: str(popup.titleOfSelectedItem())
+                for role, popup in self.quad_popups.items()
             },
         }
 
@@ -1845,7 +1888,7 @@ def pick_files():
     _CURRENT_CONTROLLER = controller
 
     # Window dimensions
-    win_w, win_h = 980, 1010
+    win_w, win_h = 1080, 1050
     style = (
         NSWindowStyleMaskTitled
         | NSWindowStyleMaskClosable
@@ -1888,7 +1931,7 @@ def pick_files():
 
     margin = 20
     row_h = 36
-    label_w = 180
+    label_w = 230
     field_w = 580
     btn_w = 90
 
@@ -1931,14 +1974,20 @@ def pick_files():
 
     # Column headers
     chk_w = 22  # width reserved for the title checkbox column
+    quad_w = 55  # width for the quadrant dropdown
     col_h0 = _make_label(
         "T", NSMakeRect(margin, y, chk_w, 18), bold=True, size=11
     )
     col_h0.setToolTip_("Title: check to overlay the track name on the video")
     content.addSubview_(col_h0)
     controller.upper_views.append(col_h0)
+    col_hq = _make_label(
+        "Quad", NSMakeRect(margin + chk_w, y, quad_w, 18), bold=True, size=11
+    )
+    content.addSubview_(col_hq)
+    controller.upper_views.append(col_hq)
     col_h1 = _make_label(
-        "Track Name", NSMakeRect(margin + chk_w, y, label_w - chk_w, 18), bold=True, size=11
+        "Track Name", NSMakeRect(margin + chk_w + quad_w + 4, y, label_w - chk_w - quad_w - 4, 18), bold=True, size=11
     )
     content.addSubview_(col_h1)
     controller.upper_views.append(col_h1)
@@ -1951,7 +2000,7 @@ def pick_files():
     # Capture the column-header y in the *initial* layout — extras position
     # themselves relative to this anchor.
     controller.col_headers_y_initial = y
-    y -= 24
+    y -= 28
 
     # File rows — assign unique tags so action handlers can identify which row
     next_tag = 1000
@@ -1970,9 +2019,30 @@ def pick_files():
         content.addSubview_(title_chk)
         controller.title_checks[role] = title_chk
 
+        # Quadrant dropdown
+        from chads_davinci.models import DEFAULT_TRACK_QUADRANTS, Quadrant
+        quad_popup = NSPopUpButton.alloc().initWithFrame_pullsDown_(
+            NSMakeRect(margin + chk_w, y, quad_w, 24), False
+        )
+        for q in Quadrant:
+            quad_popup.addItemWithTitle_(q.value)
+        default_quad = DEFAULT_TRACK_QUADRANTS.get(role, Quadrant.Q1)
+        # Check if saved quadrant settings override the default
+        saved_quad_data = settings.get("quad_overrides") or {}
+        saved_q = saved_quad_data.get(role.name, default_quad.value)
+        quad_popup.selectItemWithTitle_(saved_q)
+        quad_popup.setToolTip_("Quadrant position for this track")
+        quad_popup.setTarget_(controller)
+        quad_popup.setAction_("pickerQuadChanged:")
+        quad_popup.setTag_(next_tag)
+        controller.button_roles[next_tag] = role
+        next_tag += 1
+        content.addSubview_(quad_popup)
+        controller.quad_popups[role] = quad_popup
+
         # Name field — use saved name if user customized it
         default_name = saved_track_names.get(role.name, role.value)
-        name_field = _make_textfield(default_name, NSMakeRect(margin + chk_w, y, label_w - chk_w, 24))
+        name_field = _make_textfield(default_name, NSMakeRect(margin + chk_w + quad_w + 4, y, label_w - chk_w - quad_w - 4, 24))
         content.addSubview_(name_field)
         controller.name_fields[role] = name_field
 

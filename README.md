@@ -13,7 +13,7 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 
 [![CI](https://github.com/chadlittlepage/chads-davinci-script/actions/workflows/ci.yml/badge.svg)](https://github.com/chadlittlepage/chads-davinci-script/actions)
 
-## What's New in v0.3.4
+## What's New in v0.4.0
 
 - **Video track text overlays** — check the "T" box next to any track to
   burn the track name into the video via Fusion TextPlus. No Fusion page

@@ -77,6 +77,21 @@ def run_build(data: dict) -> None:
     custom_tracks = custom_quad.get("tracks") if custom_quad else None
     models.QUAD_TRANSFORMS = models.get_quad_transforms(tl_w, tl_h, custom=custom_tracks)
 
+    # Apply quad overrides from the picker's quadrant dropdowns
+    quad_overrides = data.get("quad_overrides") or {}
+    if quad_overrides:
+        from chads_davinci.models import Quadrant, quadrant_offsets, QuadTransform
+        role_map = {r.name: r for r in TrackRole}
+        for role_name, q_str in quad_overrides.items():
+            role = role_map.get(role_name)
+            if role and role in models.QUAD_TRANSFORMS:
+                try:
+                    quad = Quadrant(q_str)
+                    px, py = quadrant_offsets(quad, tl_w, tl_h)
+                    models.QUAD_TRANSFORMS[role] = QuadTransform(position_x=px, position_y=py)
+                except (ValueError, KeyError):
+                    pass
+
     # Apply bin rename map to TRACK_BIN_MAP so renamed bins still get the right files
     bin_rename_map = data.get("bin_rename_map") or {}
     if bin_rename_map:
@@ -136,17 +151,16 @@ def run_build(data: dict) -> None:
     if timeline_markers and ctx.timeline:
         console.print()
         console.print(f"[bold]Adding {len(timeline_markers)} metadata markers to timeline...[/bold]")
-        # Marker colors cycle through a few options for visibility
-        colors = ["Blue", "Cyan", "Green", "Yellow", "Pink", "Purple"]
-        # Spread markers across the timeline so they don't all stack at frame 0
+        # Spread markers across the timeline so they don't all stack at frame 0.
+        # Each marker uses its own color (Cyan=merged, Blue=MediaInfo, Green=ffprobe).
         tl_end = ctx.timeline.GetEndFrame() - ctx.timeline.GetStartFrame()
         spacing = max(1, tl_end // (len(timeline_markers) + 1))
         for i, m in enumerate(timeline_markers):
             frame_id = (i + 1) * spacing
-            color = colors[i % len(colors)]
+            color = m.get("color", "Cyan")
             try:
                 ctx.timeline.AddMarker(frame_id, color, m["name"], m["comment"], 1)
-                console.print(f"  Added marker: [cyan]{m['name']}[/cyan] at frame {frame_id}")
+                console.print(f"  Added marker: [cyan]{m['name']}[/cyan] ({color}) at frame {frame_id}")
             except Exception as e:
                 console.print(f"  [yellow]Failed to add marker {m['name']}: {e}[/yellow]")
 

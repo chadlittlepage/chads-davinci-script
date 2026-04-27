@@ -52,12 +52,13 @@ def delete_preset(name: str) -> None:
 # Factory defaults for picker form values
 DEFAULT_SETTINGS = {
     "track_names": {
-        "REEL_SOURCE": "REEL SOURCE",
-        "L1SHW_795_STRETCH_1500": "L15HW 795 Stretch 1500",
-        "HW2_795_STRETCH_1500": "HW2 795 Stretch 1500",
+        "L1SHW_795": "L15HW 795 Stretched 1500",
+        "HW2_795": "HW2 795 Stretched 1500",
+        "HW5_795": "HW5 795 Stretched 1500",
         "L1SHW_300": "L15HW 300",
-        "HW2_300_NIT": "HW2 300",
-        "L1SHW_HDMI": "L15HW HDMI",
+        "HW2_300": "HW2 300",
+        "HW5_300": "HW5 300",
+        "REEL_SOURCE": "REEL SOURCE",
     },
     "folder_name": "Quad Projects",
     "project_name": "Quad Project v001",
