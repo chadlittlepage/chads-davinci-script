@@ -1,7 +1,5 @@
 ![Chad's DaVinci Script](screenshot.png)
 
-![Settings](screenshot_settings.png)
-
 # Chad's DaVinci Script
 
 A native macOS app that automates DaVinci Resolve project setup for
@@ -94,6 +92,44 @@ DMG** that opens with no Gatekeeper warnings on any modern Mac.
 - **Save** persists as the new default; **Revert to Default**
   restores the factory bin structure
 - Renames automatically update the track→bin mapping
+
+### Settings (`Cmd+,`)
+
+![Settings](screenshot_settings.png)
+
+Open from the app menu or press `Cmd+,`. Only one Settings window at a
+time. `ESC` or `Cmd+.` cancels, `Return` saves.
+
+**Quadrant Transforms** — select any track from the left panel to assign
+it to a quadrant (Q1 top-left, Q2 top-right, Q3 bottom-left, Q4
+bottom-right). Fine-tune Pan, Tilt, Zoom, Rotation, Anchor Point, Pitch,
+Yaw, and Flip. Changes sync bidirectionally with the picker's Quad
+dropdown — editing either one updates the other in real time.
+
+**Quad Preview** — a simulated video screen shows which quadrant the
+selected track will land in. The track name is rendered in the currently
+selected title font, color, and opacity so you can see exactly how text
+overlays will look before building.
+
+**Build Options**
+- **Skip V1 quadrant templates** — skip the Solid Color compound clips
+  on V1 for faster builds when you don't need the reference overlays
+
+**Title Style** — controls the appearance of text overlays (the "T"
+checkbox per track in the picker):
+- **Font** — 20 standard macOS fonts (Helvetica Neue, Arial, Avenir,
+  Futura, Gill Sans, Verdana, Trebuchet MS, Optima, Lucida Grande,
+  Didot, Baskerville, Palatino, Georgia, Times New Roman, Hoefler Text,
+  American Typewriter, Copperplate, Menlo, Monaco, Courier New)
+- **Size** — standard point sizes from 10pt to 72pt (default: 24pt)
+- **Color** — White, Yellow, Cyan, Green, Red, Orange, Black
+- **Placement** — Lower Right, Lower Left, Upper Right, Upper Left,
+  Center, Lower Center, Upper Center
+- **Opacity** — 100%, 75%, 50%, 25%
+
+All settings are saved to `~/Library/Application Support/Chads DaVinci
+Script/quadrant_settings.json` and persisted across launches. They are
+also included in preset saves and settings export/import.
 
 ### Resolve project automation
 - Database / folder / project navigation (Local, Network, Cloud)
